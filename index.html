@@ -62,6 +62,12 @@
   .finbar{position:sticky;bottom:0;background:var(--panel2);border-top:1px solid var(--line);padding:10px 14px;display:flex;gap:10px;align-items:center;margin:14px -20px -16px;flex-wrap:wrap}
   .mono td,.mono th{font-variant-numeric:tabular-nums}
   .neg{color:#ff8b7d}
+  #gate{position:fixed;inset:52px 0 0 0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:40;padding:20px}
+  .gatebox{max-width:440px;text-align:center;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:34px 30px}
+  .gatebox h2{margin:12px 0 6px;font-size:20px}
+  .gatebox button{margin-top:12px;padding:11px 20px;font-size:15px}
+  #viewTabs{margin:0 0 12px}
+  input[type=date]{width:auto;padding:5px 7px;font-size:12px;color-scheme:dark}
 </style>
 </head>
 <body>
@@ -70,7 +76,14 @@
   <span class="sub" id="hdrsub">Carregue a lista da Caixa (Lista_imoveis_&lt;UF&gt;.csv) para começar</span>
   <span id="authArea" style="margin-left:auto;display:flex;gap:8px;align-items:center;font-size:12px"></span>
 </header>
-<div class="wrap">
+<div id="gate"><div class="gatebox">
+  <div style="font-size:42px">🔒</div>
+  <h2>Entre para usar o painel</h2>
+  <p class="muted">Seus favoritos, checklist, prazos e análises ficam salvos na sua conta e sincronizam entre dispositivos. Sem login, o painel fica bloqueado.</p>
+  <button id="gateBtn" onclick="sbLogin()">Entrar com Google</button>
+  <p class="muted" id="gateMsg" style="margin-top:14px">Verificando login…</p>
+</div></div>
+<div class="wrap" style="display:none">
   <aside class="side">
     <h3>1 · Dados</h3>
     <label>Lista da Caixa (CSV)</label>
@@ -101,12 +114,16 @@
     <div class="muted" style="margin-top:8px">Terreno: sem condomínio/reforma. Casa: sem condomínio. "Venda % aval." simula revenda abaixo do laudo.</div>
   </aside>
   <main class="main">
+    <div class="tabs" id="viewTabs">
+      <button class="on" data-v="all" onclick="setView('all')">Todos</button>
+      <button data-v="fav" onclick="setView('fav')">★ Favoritos (0)</button>
+    </div>
     <div class="statrow" id="stats"></div>
     <div id="tableWrap"><div class="empty">Nenhum dado carregado.<br>Baixe a lista em <a href="https://venda-imoveis.caixa.gov.br/sistema/download-lista.asp" target="_blank">download-lista.asp</a> e carregue aqui.</div></div>
     <div class="finbar" id="finbar" style="display:none">
-      <b id="finCount">0</b><span class="muted">finalistas</span>
-      <button onclick="exportFinalists()">📋 Exportar finalistas p/ Claude (matrículas)</button>
-      <button class="ghost" onclick="clearFin()">Limpar</button>
+      <b id="finCount">0</b><span class="muted">favoritos</span>
+      <button onclick="exportFinalists()">📋 Exportar favoritos p/ Claude (matrículas)</button>
+      <button class="ghost" onclick="clearFin()">Limpar favoritos</button>
     </div>
   </main>
 </div>
@@ -116,8 +133,10 @@
 <script src="config.js"></script>
 <script>
 let RAW=[], FILTERED=[], SORT={k:'desc',dir:-1};
-const FIN=loadLS('fin_sel',{}), CKST=loadLS('ck_state',{}), FAR=loadLS('far_state',{}), POV=loadLS('prem_over',{});
-function EP(){const r=window._cur;return Object.assign({},P(),POV[r.id]||{});}
+const FIN=loadLS('fin_sel',{}), CKST=loadLS('ck_state',{}), FAR=loadLS('far_state',{}), POV=loadLS('prem_over',{}), FAVMETA=loadLS('fav_meta',{});
+let VIEW='all';
+function EPof(r){return Object.assign({},P(),POV[r.id]||{});}
+function EP(){return EPof(window._cur);}
 function loadLS(k,d){try{return JSON.parse(localStorage.getItem(k))||d}catch(e){return d}}
 function saveLS(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}if(typeof cloudSave==='function')cloudSave();}
 function brNum(s){if(s==null)return null;s=(''+s).trim().replace(/\./g,'').replace(',','.');const n=parseFloat(s);return isNaN(n)?null:n;}
@@ -125,6 +144,49 @@ function normCity(s){return (s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUp
 function fmt(n){return n==null||isNaN(n)?'—':Math.round(n).toLocaleString('pt-BR');}
 function pct(n){return (n*100).toFixed(1)+'%';}
 const COLORS={VERDE:'#2ecc71',AMARELO:'#f1c40f',VERMELHO:'#e74c3c'};
+
+// ---- favoritos: modalidade, prazo, snapshot, reconciliação e aba ----
+function isOnlineSale(modal){return !/direta/i.test(modal||'');}
+function fmtDate(s){if(!s)return '';const p=(''+s).split('-');return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:s;}
+function daysUntil(dstr){if(!dstr)return null;const d=new Date(dstr+'T23:59:59');if(isNaN(d))return null;return Math.ceil((d-new Date())/86400000);}
+function prazoStatus(dstr){if(!dstr)return ' <span class="pill r">⚠ sem prazo</span>';const du=daysUntil(dstr);if(du==null)return '';if(du<0)return ` <span class="pill r">⏰ vencido</span>`;if(du<=3)return ` <span class="pill y">⚠ ${du}d</span>`;return ` <span class="pill g">${du}d</span>`;}
+function snapFromRow(r,dg){return {id:r.id,uf:r.uf,cidade:r.cidade,cidadeN:r.cidadeN,bairro:r.bairro,endereco:r.endereco,link:r.link,tipo:r.tipo,preco:r.preco,aval:r.aval,desc:r.desc,modal:r.modal,fin:r.fin,area:r.area,descr:r.descr,lastDg:dg,present:true};}
+function rowFromMeta(m){return {id:m.id,uf:m.uf||'',cidade:m.cidade||'',cidadeN:m.cidadeN||normCity(m.cidade||''),bairro:m.bairro||'',endereco:m.endereco||'',link:m.link||'',tipo:m.tipo||'',preco:m.preco,aval:m.aval,desc:m.desc||0,fin:m.fin||'',area:m.area||null,modal:m.modal||'',descr:m.descr||'',_absent:true};}
+function reconcileFavorites(dg){
+  const byId={};RAW.forEach(r=>byId[r.id]=r);
+  Object.keys(FIN).filter(k=>FIN[k]).forEach(id=>{
+    const row=byId[id],meta=FAVMETA[id]||{};
+    if(row){const old=meta.preco;const snap=snapFromRow(row,dg);snap.prazo=meta.prazo||'';snap.firstDg=meta.firstDg||dg;snap.prevPreco=(old!=null&&old!==row.preco)?old:null;FAVMETA[id]=snap;}
+    else{meta.id=id;meta.present=false;FAVMETA[id]=meta;}
+  });
+  saveLS('fav_meta',FAVMETA);
+}
+function updateFavTab(){const c=Object.keys(FIN).filter(k=>FIN[k]).length;const ft=document.querySelector('#viewTabs [data-v="fav"]');if(ft)ft.textContent='★ Favoritos ('+c+')';}
+function setView(v){VIEW=v;document.querySelectorAll('#viewTabs button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));render();}
+function setPrazo(id,val){FAVMETA[id]=FAVMETA[id]||{id};FAVMETA[id].prazo=val;saveLS('fav_meta',FAVMETA);render();if(modalbg.style.display==='flex'&&window._cur&&window._cur.id===id)drawModal();}
+function renderFavorites(p){
+  const ids=Object.keys(FIN).filter(k=>FIN[k]);
+  const items=ids.map(id=>{const row=RAW.find(r=>r.id===id);const meta=FAVMETA[id]||{id};return {id,row,meta,present:!!row,data:row||meta};});
+  const online=items.filter(x=>isOnlineSale(x.data.modal));
+  const fora=items.filter(x=>!x.present).length;
+  const semPrazo=online.filter(x=>!x.meta.prazo).length;
+  const urg=online.filter(x=>{const du=daysUntil(x.meta.prazo);return du!=null&&du<=3;}).length;
+  stats.innerHTML=[['Favoritos',items.length],['Fora da lista',fora],['Online s/ prazo',semPrazo],['Prazo urgente/vencido',urg]].map(s=>`<div class="stat">${s[0]}<b>${s[1]}</b></div>`).join('');
+  if(!items.length){tableWrap.innerHTML='<div class="empty">Nenhum favorito ainda.<br>Vá em <b>Todos</b> e marque imóveis com ★.</div>';finbar.style.display='none';return;}
+  const cols=['★','Status','Cidade','Tipo','Bairro','Preço','Desc.%','Modalidade','Prazo leilão','Farol','Abrir'];
+  let h='<table class="mono"><thead><tr>'+cols.map(c=>`<th>${c}</th>`).join('')+'</tr></thead><tbody>';
+  items.forEach(x=>{
+    const d=x.data,on=isOnlineSale(d.modal);
+    let precoCell=fmt(d.preco);
+    if(x.present&&x.meta.prevPreco!=null&&x.meta.prevPreco!==d.preco){const del=d.preco-x.meta.prevPreco,dn=del<0;precoCell+=` <span class="pill ${dn?'g':'r'}">${dn?'▼':'▲'} ${fmt(Math.abs(del))}</span>`;}
+    const status=x.present?'<span class="pill g">Na lista</span>':'<span class="pill r">Fora da lista</span>'+(x.meta.lastDg?`<div class="muted" style="font-size:10px">visto ${x.meta.lastDg}</div>`:'');
+    const prazoCell=on?`<input type="date" value="${x.meta.prazo||''}" onclick="event.stopPropagation()" onchange="setPrazo('${x.id}',this.value)">`+prazoStatus(x.meta.prazo):'<span class="muted">—</span>';
+    let farolCell='<span class="muted">—</span>';
+    if(x.present){const fr=farol(x.row,EPof(x.row));farolCell=`<span class="pill ${fr.verd==='VERDE'?'g':fr.verd==='AMARELO'?'y':'r'}">${fr.verd}</span>`;}
+    h+=`<tr onclick="openDetail('${x.id}')"><td onclick="event.stopPropagation();toggleFin('${x.id}')" style="cursor:pointer">⭐</td><td>${status}</td><td>${d.cidade||'—'}</td><td>${d.tipo||'—'}</td><td>${d.bairro||'—'}</td><td class="rt">${precoCell}</td><td class="rt">${d.desc!=null?(+d.desc).toFixed(1):'—'}%</td><td>${d.modal||'—'}</td><td>${prazoCell}</td><td>${farolCell}</td><td>🔍</td></tr>`;
+  });
+  h+='</tbody></table>';tableWrap.innerHTML=h;finbar.style.display='flex';finCount.textContent=items.length;
+}
 
 function parseCSV(text){
   const lines=text.split(/\r?\n/);
@@ -216,25 +278,26 @@ function chart(cats,series,{type='bar',h=230,fmtY=fmt,title=''}={}){
 }
 
 // ---------- carregar CSV ----------
-file.addEventListener('change',e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>{const {rows,dataGer}=parseCSV(rd.result);RAW=rows;window._dg=dataGer;dataInfo.innerHTML=`<b>${rows.length}</b> imóveis · geração ${dataGer||'?'}`;hdrsub.textContent=`Lista carregada (${dataGer||'?'}) — ${rows.length} imóveis`;const cids=[...new Set(rows.map(r=>r.cidadeN))].sort();fCidade.innerHTML='<option value="">Todas as cidades</option>'+cids.map(c=>`<option>${c}</option>`).join('');const tps=[...new Set(rows.map(r=>r.tipo))].sort();fTipos.innerHTML=tps.map(t=>`<label class="chk"><input type="checkbox" class="tp" value="${t}" checked>${t}</label>`).join('');applyFilters();};rd.readAsText(f,'ISO-8859-1');});
+file.addEventListener('change',e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>{const {rows,dataGer}=parseCSV(rd.result);RAW=rows;window._dg=dataGer;reconcileFavorites(dataGer);dataInfo.innerHTML=`<b>${rows.length}</b> imóveis · geração ${dataGer||'?'}`;hdrsub.textContent=`Lista carregada (${dataGer||'?'}) — ${rows.length} imóveis`;const cids=[...new Set(rows.map(r=>r.cidadeN))].sort();fCidade.innerHTML='<option value="">Todas as cidades</option>'+cids.map(c=>`<option>${c}</option>`).join('');const tps=[...new Set(rows.map(r=>r.tipo))].sort();fTipos.innerHTML=tps.map(t=>`<label class="chk"><input type="checkbox" class="tp" value="${t}" checked>${t}</label>`).join('');applyFilters();};rd.readAsText(f,'ISO-8859-1');});
 
 function applyFilters(){if(!RAW.length)return;const cid=fCidade.value,vmax=+fValor.value||Infinity;const tps=[...document.querySelectorAll('.tp:checked')].map(x=>x.value);FILTERED=RAW.filter(r=>(!cid||r.cidadeN===cid)&&r.preco<=vmax&&tps.includes(r.tipo));render();}
 function recalc(){render();if(modalbg.style.display==='flex')drawModal();if(typeof cloudSave==='function')cloudSave();}
 function render(){const p=P();FILTERED.forEach(r=>{const a=avistaSeries(r,p).slice(-1)[0];r._luc=a.ll;r._roi=calc(r,p).investAvista?a.ll/calc(r,p).investAvista:0;r._far=farol(r,p);});FILTERED.sort((x,y)=>SORT.dir*((x[SORT.k]??-1e18)>(y[SORT.k]??-1e18)?1:-1));
+  updateFavTab();if(VIEW==='fav'){renderFavorites(p);return;}
   const n=FILTERED.length,avgD=n?FILTERED.reduce((s,r)=>s+r.desc,0)/n:0,best=n?Math.max(...FILTERED.map(r=>r.desc)):0,fin=Object.keys(FIN).filter(k=>FIN[k]).length;
-  stats.innerHTML=[['Imóveis',n],['Desconto médio',avgD.toFixed(1)+'%'],['Maior desconto',best.toFixed(1)+'%'],['Finalistas',fin]].map(s=>`<div class="stat">${s[0]}<b>${s[1]}</b></div>`).join('');
+  stats.innerHTML=[['Imóveis',n],['Desconto médio',avgD.toFixed(1)+'%'],['Maior desconto',best.toFixed(1)+'%'],['Favoritos',fin]].map(s=>`<div class="stat">${s[0]}<b>${s[1]}</b></div>`).join('');
   if(!n){tableWrap.innerHTML='<div class="empty">Nenhum imóvel no filtro.</div>';finbar.style.display='none';return;}
   const cols=[['#',''],['cidade','Cidade'],['tipo','Tipo'],['bairro','Bairro'],['preco','Preço'],['aval','Avaliação'],['desc','Desc.%'],['_luc','Lucro Líq.'],['_roi','ROI'],['modal','Modalidade'],['fin','Fin.'],['_far','Farol'],['sel','★']];
   let h='<table class="mono"><thead><tr>'+cols.map(c=>`<th onclick="sortBy('${c[0]}')">${c[1]}</th>`).join('')+'</tr></thead><tbody>';
   FILTERED.forEach((r,i)=>{const fc=r._far.verd;h+=`<tr onclick="openDetail('${r.id}')"><td>${i+1}${POV[r.id]?' ⚙':''}</td><td>${r.cidade}</td><td>${r.tipo}</td><td>${r.bairro}</td><td class="rt">${fmt(r.preco)}</td><td class="rt">${fmt(r.aval)}</td><td class="rt"><span class="pill ${r.desc>=45?'g':r.desc>=40?'y':''}">${r.desc.toFixed(1)}%</span></td><td class="rt ${r._luc<0?'neg':''}">${fmt(r._luc)}</td><td class="rt">${pct(r._roi)}</td><td>${r.modal}</td><td>${r.fin==='Sim'?'<span class="pill g">Sim</span>':'Não'}</td><td><span class="pill ${fc==='VERDE'?'g':fc==='AMARELO'?'y':'r'}">${fc}</span></td><td onclick="event.stopPropagation();toggleFin('${r.id}')">${FIN[r.id]?'⭐':'☆'}</td></tr>`;});
   h+='</tbody></table>';tableWrap.innerHTML=h;const c=Object.keys(FIN).filter(k=>FIN[k]).length;finbar.style.display=c?'flex':'none';finCount.textContent=c;}
 function sortBy(k){if(k==='sel'||k==='#')return;SORT.dir=SORT.k===k?-SORT.dir:-1;SORT.k=k;render();}
-function toggleFin(id){FIN[id]=!FIN[id];saveLS('fin_sel',FIN);render();}
-function clearFin(){Object.keys(FIN).forEach(k=>delete FIN[k]);saveLS('fin_sel',FIN);render();}
+function toggleFin(id){FIN[id]=!FIN[id];if(FIN[id]){const row=RAW.find(r=>r.id===id);if(row){const snap=snapFromRow(row,window._dg||'');snap.prevPreco=null;snap.firstDg=window._dg||'';snap.prazo=(FAVMETA[id]&&FAVMETA[id].prazo)||'';FAVMETA[id]=snap;}}else{delete FAVMETA[id];}saveLS('fav_meta',FAVMETA);saveLS('fin_sel',FIN);render();}
+function clearFin(){if(!confirm('Remover TODOS os favoritos? (o checklist e as premissas por imóvel são mantidos)'))return;Object.keys(FIN).forEach(k=>delete FIN[k]);Object.keys(FAVMETA).forEach(k=>delete FAVMETA[k]);saveLS('fav_meta',FAVMETA);saveLS('fin_sel',FIN);render();}
 
 // ---------- detalhe ----------
 let CURTAB='resumo';
-function openDetail(id){window._cur=RAW.find(x=>x.id===id);CURTAB='resumo';drawModal();modalbg.style.display='flex';}
+function openDetail(id){let r=RAW.find(x=>x.id===id);if(!r){const m=FAVMETA[id];if(m&&m.preco!=null)r=rowFromMeta(m);}if(!r){alert('Sem dados deste imóvel na lista atual. Carregue uma lista que o contenha para ver a análise completa.');return;}window._cur=r;CURTAB='resumo';drawModal();modalbg.style.display='flex';}
 function closeModal(){modalbg.style.display='none';}
 modalbg.addEventListener('click',e=>{if(e.target===modalbg)closeModal();});
 function setTab(t){CURTAB=t;drawModal();}
@@ -245,6 +308,8 @@ function drawModal(){
   let b=`<button class="close" onclick="closeModal()">✕ Fechar</button>
   <h2>${r.tipo} · ${r.bairro} <span class="badge">${r.cidade}</span> <span class="pill ${fr.verd==='VERDE'?'g':fr.verd==='AMARELO'?'y':'r'}" id="farolPill">${fr.verd} · ${fr.score}</span></h2>
   <div class="muted">${r.endereco} · <a href="${r.link}" target="_blank">ver na Caixa ↗</a> · matrícula: <a href="https://venda-imoveis.caixa.gov.br/editais/matricula/${r.uf}/${r.id}.pdf" target="_blank">PDF ↗</a></div>
+  ${r._absent?`<div class="pill r" style="display:inline-block;margin:6px 0">⚠ Fora da lista atual — dados de ${(FAVMETA[r.id]&&FAVMETA[r.id].lastDg)||'?'}. Pode ter sido vendido/leiloado.</div>`:''}
+  ${isOnlineSale(r.modal)?`<div class="muted" style="margin:6px 0">⏳ Prazo do leilão: <input type="date" value="${(FAVMETA[r.id]&&FAVMETA[r.id].prazo)||''}" onchange="setPrazo('${r.id}',this.value)">${prazoStatus((FAVMETA[r.id]||{}).prazo)}${FIN[r.id]?'':' <span class="muted">— favorite ★ para acompanhar o prazo</span>'}</div>`:''}
   ${premEditor(r,p)}
   <div class="tabs">${TABS.map(t=>`<button class="${CURTAB===t[0]?'on':''}" onclick="setTab('${t[0]}')">${t[1]}</button>`).join('')}</div>`;
   b+=({resumo:tabResumo,calc:tabCalc,avista:tabAvista,price:()=>tabFin('PRICE'),sac:()=>tabFin('SAC'),result:tabResult,ck:tabCk})[CURTAB]();
@@ -344,19 +409,19 @@ const GLOBAL_INPUTS=['pVendaPct','pPrazoVenda','pJuros','pEntrada','pItbi','pCor
 function collectState(){
   const globals={};
   GLOBAL_INPUTS.forEach(id=>{const el=document.getElementById(id);if(el)globals[id]=el.value;});
-  return {v:2,fin:FIN,ck:CKST,far:FAR,pov:POV,globals};
+  return {v:3,fin:FIN,ck:CKST,far:FAR,pov:POV,favmeta:FAVMETA,globals};
 }
 function hydrateState(d){
   if(!d||typeof d!=='object')return;
   HYDRATING=true;
   try{
     const repl=(obj,src)=>{Object.keys(obj).forEach(k=>delete obj[k]);if(src&&typeof src==='object')Object.assign(obj,src);};
-    repl(FIN,d.fin);repl(CKST,d.ck);repl(FAR,d.far);repl(POV,d.pov);
+    repl(FIN,d.fin);repl(CKST,d.ck);repl(FAR,d.far);repl(POV,d.pov);repl(FAVMETA,d.favmeta);
     if(d.globals)Object.keys(d.globals).forEach(id=>{const el=document.getElementById(id);if(el&&d.globals[id]!=null&&(id!=='fCidade'||[...el.options].some(o=>o.value===d.globals[id])))el.value=d.globals[id];});
     // grava localmente sem disparar cloudSave
-    try{localStorage.setItem('fin_sel',JSON.stringify(FIN));localStorage.setItem('ck_state',JSON.stringify(CKST));localStorage.setItem('far_state',JSON.stringify(FAR));localStorage.setItem('prem_over',JSON.stringify(POV));}catch(e){}
+    try{localStorage.setItem('fin_sel',JSON.stringify(FIN));localStorage.setItem('ck_state',JSON.stringify(CKST));localStorage.setItem('far_state',JSON.stringify(FAR));localStorage.setItem('prem_over',JSON.stringify(POV));localStorage.setItem('fav_meta',JSON.stringify(FAVMETA));}catch(e){}
   }finally{HYDRATING=false;}
-  if(RAW.length)applyFilters();
+  updateFavTab();if(RAW.length)applyFilters();else if(VIEW==='fav')render();
 }
 function cloudSave(){
   if(HYDRATING||!SB||!USER||!_loaded)return;
@@ -368,18 +433,30 @@ function cloudSave(){
 }
 async function cloudLoad(){
   if(!SB||!USER)return;
+  let hadCloud=false;
   try{
     const {data,error}=await SB.from('app_state').select('data').eq('user_id',USER.id).maybeSingle();
     if(error){console.warn('cloudLoad',error);}
-    if(data&&data.data)hydrateState(data.data);
+    if(data&&data.data){hadCloud=true;hydrateState(data.data);}
   }catch(e){console.warn('cloudLoad falhou',e);}
   _loaded=true;
+  if(!hadCloud){const local=Object.keys(FIN).length+Object.keys(CKST).length+Object.keys(FAR).length+Object.keys(POV).length+Object.keys(FAVMETA).length;if(local)cloudSave();}
+}
+function updateGate(){
+  const authed=!!(SB&&USER);
+  const w=document.querySelector('.wrap'),g=document.getElementById('gate'),msg=document.getElementById('gateMsg'),btn=document.getElementById('gateBtn');
+  if(w)w.style.display=authed?'flex':'none';
+  if(g)g.style.display=authed?'none':'flex';
+  if(msg){if(!SB){msg.textContent='Login indisponível: configuração do Supabase ausente.';if(btn)btn.style.display='none';}else{msg.textContent='';if(btn)btn.style.display='';}}
 }
 function renderAuth(){
-  const a=document.getElementById('authArea');if(!a)return;
-  if(!SB){a.innerHTML='<span class="muted">modo local</span>';return;}
-  if(USER){a.innerHTML=`<span class="muted">${(USER.email||'conectado')}</span><button class="ghost" onclick="sbLogout()">Sair</button>`;}
-  else{a.innerHTML='<button onclick="sbLogin()">Entrar com Google</button>';}
+  const a=document.getElementById('authArea');
+  if(a){
+    if(!SB){a.innerHTML='<span class="muted">login indisponível</span>';}
+    else if(USER){a.innerHTML=`<span class="muted">${(USER.email||'conectado')}</span><button class="ghost" onclick="sbLogout()">Sair</button>`;}
+    else{a.innerHTML='<button onclick="sbLogin()">Entrar com Google</button>';}
+  }
+  updateGate();
 }
 async function sbLogin(){
   if(!SB)return;
