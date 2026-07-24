@@ -6,5 +6,5 @@
 // Enquanto estas duas linhas estiverem vazias, o app roda 100% local
 // (localStorage), sem login e sem nuvem — nada quebra.
 
-window.SUPABASE_URL      = ""; // ex.: "https://xxxxxxxxxxxx.supabase.co"
-window.SUPABASE_ANON_KEY = ""; // ex.: "eyJhbGciOiJI..."
+window.SUPABASE_URL      = "https://nghotkzetcwvbtckqzry.supabase.co";
+window.SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5naG90a3pldGN3dmJ0Y2txenJ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ5MTk2MjIsImV4cCI6MjEwMDQ5NTYyMn0.KyHgAQgZaBkTlyG6BX7nPWX5G_Rs84JsyVKqxvV0APE";
