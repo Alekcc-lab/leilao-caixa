@@ -1,0 +1,15 @@
+# Sistema / editores
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+.idea/
+
+# Node (caso venha a usar ferramentas locais)
+node_modules/
+npm-debug.log*
+
+# Planilhas e CSVs baixados (não versionar dados)
+*.csv
+*.xlsx
+~$*

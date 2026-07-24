@@ -1,0 +1,18 @@
+# Render — site estático (Blueprint).
+# No painel do Render: New → Blueprint → aponte para este repositório.
+# Como é HTML puro, não há build: o Render apenas publica a pasta.
+services:
+  - type: web
+    name: leilao-caixa
+    runtime: static
+    buildCommand: ""
+    staticPublishPath: .
+    pullRequestPreviewsEnabled: true
+    headers:
+      - path: /*
+        name: X-Frame-Options
+        value: SAMEORIGIN
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
