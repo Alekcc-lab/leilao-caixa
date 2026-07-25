@@ -153,19 +153,27 @@
     <div class="finbar" id="finbar" style="display:none">
       <b id="finCount">0</b><span class="muted">favoritos</span>
       <button onclick="exportModelo()">📊 Exportar planilha (modelo)</button>
-      <button class="ghost" onclick="exportFinalists()">📋 p/ Claude (matrículas)</button>
+      <button class="ghost" onclick="promptIA()">🤖 Gerar prompt p/ IA</button>
+      <button class="ghost" onclick="openIAImport()">📥 Importar análise IA</button>
       <button class="ghost" onclick="clearFin()">Limpar favoritos</button>
     </div>
   </main>
 </div>
 <div class="modalbg" id="modalbg"><div class="modal" id="modal"></div></div>
+<div class="modalbg" id="iaImport" style="z-index:60"><div class="modal" style="max-width:720px">
+  <button class="close" onclick="closeIAImport()">✕ Fechar</button>
+  <h2>📥 Importar análise da IA</h2>
+  <div class="muted" style="margin:4px 0 10px">Cole aqui o <b>JSON</b> que o Claude gerou (a partir do "🤖 Gerar prompt p/ IA"). Preenche o checklist dos imóveis e cria os "Achados da IA". <b>Sobrescreve</b> o que estiver preenchido nos itens retornados.</div>
+  <textarea id="iaText" placeholder='Cole o JSON aqui (ex.: { "imoveis": [ ... ] })' style="width:100%;height:240px;background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:10px;font-family:ui-monospace,monospace;font-size:12px"></textarea>
+  <div style="display:flex;gap:10px;margin-top:10px"><button onclick="importIA()">Importar</button><button class="ghost" onclick="closeIAImport()">Cancelar</button></div>
+</div></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
 <script src="config.js"></script>
 <script>
 let RAW=[], FILTERED=[], SORT={k:'desc',dir:-1};
-const FIN=loadLS('fin_sel',{}), CKST=loadLS('ck_state',{}), FAR=loadLS('far_state',{}), POV=loadLS('prem_over',{}), FAVMETA=loadLS('fav_meta',{}), DEBT=loadLS('debt',{}), COMP=loadLS('comp',{}), REF=loadLS('ref',{}), CEN=loadLS('cen',{});
+const FIN=loadLS('fin_sel',{}), CKST=loadLS('ck_state',{}), FAR=loadLS('far_state',{}), POV=loadLS('prem_over',{}), FAVMETA=loadLS('fav_meta',{}), DEBT=loadLS('debt',{}), COMP=loadLS('comp',{}), REF=loadLS('ref',{}), CEN=loadLS('cen',{}), AIX=loadLS('aix',{});
 let VIEW='all';
 const DEBT_TYPES=['Condomínio vencido','IPTU vencido','Água','Energia','Gás','Multas condominiais','Custas p/ baixa de ônus','Outros'];
 function debtRows(id){return DEBT[id]||DEBT_TYPES.map(t=>({tipo:t,valor:0,coberto:'Não',status:'Pendente'}));}
@@ -346,7 +354,8 @@ function checklist(r,p){const tp=tipoParams(r.tipo,p);const fin=r.fin==='Sim';co
    ["Financeiro","Garantir capital e reserva de contingência","Crítico",true,"Pendente",fin?"Financiável — obter pré-aprovação.":"Recursos próprios — garantir capital + reserva."],
    ["Tributário","Validar tributação com contador","Importante",false,"Pendente","Imposto sobre ganho de capital na revenda."]
   ];
-  const st=CKST[r.id]||{};return base.map((b,i)=>{const o=st[i]||{};return {i,cat:b[0],item:b[1],crit:b[2],bloqueia:b[3],status:o.status||b[4],obs:o.obs!=null?o.obs:b[5],evid:o.evid||'',resp:o.resp||'',dataIni:o.dataIni||'',dataFim:o.dataFim||''};});}
+  const KEYS=['edital_ler','edital_desistencia','matricula_obter','matricula_onus','matricula_restricoes','certidoes_acoes','ocupacao_confirmar','ocupacao_ocupante','ocupacao_posse','debito_condominio','debito_iptu','debito_responsabilidade','fisico_visita','fisico_reforma','mercado_comparaveis','mercado_liquidez','financeiro_capital','tributario_contador'];
+  const st=CKST[r.id]||{};return base.map((b,i)=>{const o=st[i]||{};return {i,chave:KEYS[i],cat:b[0],item:b[1],crit:b[2],bloqueia:b[3],status:o.status||b[4],obs:o.obs!=null?o.obs:b[5],evid:o.evid||'',resp:o.resp||'',dataIni:o.dataIni||'',dataFim:o.dataFim||'',ai:!!o.ai};});}
 
 // ---------- SVG charts ----------
 function chart(cats,series,{type='bar',h=230,fmtY=fmt,title=''}={}){
@@ -435,7 +444,7 @@ function tabResumo(){const r=window._cur,p=EP();const av=avistaSeries(r,p).slice
    <div class="card"><h4>Farol</h4><div class="farolbox" style="background:${COLORS[fr.verd]};color:${fr.verd==='AMARELO'?'#222':'#fff'}">${fr.verd}<div style="font-size:13px;font-weight:600">Pontuação ${fr.score}/100</div>${fr.verd==='VERDE'?'<div style="font-size:12px;font-weight:600">✓ pronto para arrematar</div>':''}</div>
      <div class="muted" style="margin-top:6px">${fr.critN>0?('⚠ '+fr.critN+' item(ns) crítico(s) em aberto — o verde só libera quando resolvidos:<br>• '+fr.critList.join('<br>• ')):'✔ Nenhum item crítico pendente no checklist.'}</div>
      <div>${farSel(r,'oc','Ocupação',OCC)}${farSel(r,'on','Ônus matrícula',ONUS)}${farSel(r,'rj','Risco jurídico',RISCO)}${farSel(r,'cs','Conservação',CONS)}${farSel(r,'lq','Liquidez',LIQ)}${farSel(r,'ed','Edital lido?',['Não','Sim'])}${farSel(r,'ma','Matrícula analisada?',['Não','Sim'])}${farSel(r,'cap','Capital garantido?',['Sim','Não'])}</div></div>
-  </div>`;}
+  </div>${aiAchadosCard(r)}`;}
 function tabCalc(){const r=window._cur,p=EP(),c=calc(r,p);
   return `<div class="grid2"><div class="card"><h4>Custos de aquisição</h4>${kv('Comissão do leiloeiro ('+(c.leilo*100).toFixed(1)+'%)','R$ '+fmt(c.PR*c.leilo))}${kv('ITBI ('+(p.itbi*100)+'%)','R$ '+fmt(c.PR*p.itbi))}${kv('Registro','R$ '+fmt(p.registro))}${kv('Advogado/desocupação','R$ '+fmt(c.tp.desoc))}${kv('Reforma/outros','R$ '+fmt(c.tp.reforma))}${kv('Subtotal aquisição','R$ '+fmt(c.custosAq))}${kv('+ Arrematação','R$ '+fmt(r.preco))}${kv('= Investimento à vista','R$ '+fmt(c.investAvista))}</div>
    <div class="card"><h4>Venda e financiamento</h4>${kv('Carrego mensal (cond+IPTU)','R$ '+fmt(c.carregoMes))}${kv('Venda considerada','R$ '+fmt(c.vv))}${kv('Comissão corretor ('+(p.corretor*100)+'%)','R$ '+fmt(c.corr))}${kv('Valor real de venda','R$ '+fmt(c.vrv))}${kv('Entrada ('+(p.entrada*100)+'%)','R$ '+fmt(c.entrada))}${kv('Valor financiado (PV)','R$ '+fmt(c.PV))}${kv('Desembolso inicial (fin.)','R$ '+fmt(c.desembInicial))}${kv('Taxa de juros mensal',(c.im*100).toFixed(4)+'%')}</div></div>
@@ -551,7 +560,7 @@ function tabCk(){const r=window._cur,p=EP();const ck=checklist(r,p);
   b+='<div class="muted" style="margin-bottom:6px">🔒 = item que <b>bloqueia o lance</b> enquanto não estiver OK ou N/A.</div>';
   let cat='';
   ck.forEach((c)=>{const i=c.i;if(c.cat!==cat){cat=c.cat;b+=`<h4 style="margin-top:12px">${cat}</h4>`;}
-    b+=`<div class="ckrow"><div class="ckhead"><span class="crit c-${c.crit}">${c.crit}</span>${c.bloqueia?' <span class="crit c-Crítico" title="Bloqueia o lance se não estiver OK/N/A">🔒 bloqueia</span>':''} <b>${esc(c.item)}</b><div class="muted">${esc(c.obs)}</div></div>
+    b+=`<div class="ckrow"><div class="ckhead"><span class="crit c-${c.crit}">${c.crit}</span>${c.bloqueia?' <span class="crit c-Crítico" title="Bloqueia o lance se não estiver OK/N/A">🔒 bloqueia</span>':''}${c.ai?' <span class="crit" style="background:rgba(127,162,255,.18);color:#9bb4ff" title="Preenchido pela IA — revise">🤖 IA</span>':''} <b>${esc(c.item)}</b><div class="muted">${esc(c.obs)}</div></div>
       <div class="ckfields">
         <select onchange="setCkField('${r.id}',${i},'status',this.value)">${['OK','Pendente','Problema','N/A'].map(s=>`<option ${s===c.status?'selected':''}>${s}</option>`).join('')}</select>
         <input placeholder="Evidência / fonte" value="${esc(c.evid)}" onchange="setCkField('${r.id}',${i},'evid',this.value)">
@@ -594,6 +603,63 @@ function setPov(field,raw){const r=window._cur;const pctF=['juros','entrada','it
 function resetPov(){const r=window._cur;delete POV[r.id];saveLS('prem_over',POV);drawModal();render();}
 
 function exportFinalists(){const ids=Object.keys(FIN).filter(k=>FIN[k]);const rows=RAW.filter(r=>ids.includes(r.id));if(!rows.length){alert('Selecione finalistas com a ★.');return;}let t='FINALISTAS PARA LEITURA DE MATRÍCULA (Claude):\n\n';rows.forEach((r,i)=>{t+=`${i+1}. ${r.tipo} — ${r.bairro}, ${r.cidade}\n   ${r.endereco}\n   Detalhe: ${r.link}\n   Matrícula: https://venda-imoveis.caixa.gov.br/editais/matricula/${r.uf}/${r.id}.pdf\n\n`;});t+='Peça: "leia as matrículas e atualize o checklist (ônus, consolidação, restrições) — sem transcrever dados pessoais".';navigator.clipboard.writeText(t).then(()=>alert('Copiado! Cole na conversa com o Claude.')).catch(()=>{const w=window.open('','_blank');w.document.write('<pre>'+t.replace(/</g,'&lt;')+'</pre>');});}
+
+// ---- IA: gerar prompt estruturado + importar JSON para o checklist ----
+function copyText(t,msg){navigator.clipboard.writeText(t).then(()=>alert(msg)).catch(()=>{const w=window.open('','_blank');w.document.write('<pre>'+t.replace(/</g,'&lt;')+'</pre>');});}
+function favRows(){const ids=Object.keys(FIN).filter(k=>FIN[k]);return ids.map(id=>RAW.find(r=>r.id===id)||(FAVMETA[id]&&FAVMETA[id].preco!=null?rowFromMeta(FAVMETA[id]):null)).filter(Boolean);}
+function promptIA(){
+  const rows=favRows();
+  if(!rows.length){alert('Selecione finalistas com a ★ (e carregue o CSV que os contenha).');return;}
+  const ck=checklist(rows[0],EPof(rows[0]));
+  const keysDoc=ck.filter(c=>/^(edital|matricula|certidoes|ocupacao|debito)/.test(c.chave));
+  let t='Você é um analista de leilão de imóveis. Para cada imóvel abaixo, leia a MATRÍCULA e o EDITAL (abra os links; se não conseguir abrir algum, me avise para eu anexar o PDF) e devolva SOMENTE um JSON no formato do final, sem nenhum texto fora do JSON.\n\n';
+  t+='REGRAS:\n- "status" permitido: "OK", "Pendente", "Problema", "N/A".\n- Em "evidencia": cite onde viu, curto (ex.: "Av.7/2022 da matrícula", "cláusula 4 do edital"). NÃO transcreva CPF, nomes completos ou dados pessoais.\n- Preencha só o que os DOCUMENTOS permitirem concluir; omita o resto.\n- Use "Problema" quando houver ônus/penhora/restrição não resolvida; "OK" quando conferido e limpo.\n- Em "achados_extras": coisas relevantes que não cabem nos itens (ex.: usufruto, cláusula de reversão, indisponibilidade, ITBI/condomínio destoante).\n\n';
+  t+='CHAVES do checklist (use exatamente em "chave"):\n';
+  keysDoc.forEach(c=>{t+='- '+c.chave+': '+c.cat+' — '+c.item+'\n';});
+  t+='\nIMÓVEIS:\n';
+  rows.forEach((r,i)=>{t+=(i+1)+') id='+r.id+' — '+r.tipo+', '+r.bairro+', '+r.cidade+'\n   Matrícula: https://venda-imoveis.caixa.gov.br/editais/matricula/'+r.uf+'/'+r.id+'.pdf\n   Detalhe/edital: '+r.link+'\n';});
+  t+='\nFORMATO DE SAÍDA (responda só isto):\n{\n  "imoveis": [\n    { "id": "<id>",\n      "checklist": [ {"chave":"matricula_onus","status":"Problema","evidencia":"...","obs":"..."} ],\n      "achados_extras": [ {"titulo":"...","detalhe":"...","relevancia":"alta|média|baixa"} ],\n      "resumo": "1-2 frases"\n    }\n  ]\n}\n';
+  copyText(t,'Prompt copiado! Cole numa conversa com o Claude. Depois traga o JSON de volta em "📥 Importar análise IA".');
+}
+function openIAImport(){document.getElementById('iaText').value='';document.getElementById('iaImport').style.display='flex';}
+function closeIAImport(){document.getElementById('iaImport').style.display='none';}
+function extractJSON(t){t=(t||'').trim();const a=t.indexOf('{'),b=t.lastIndexOf('}');return (a>=0&&b>a)?t.slice(a,b+1):t;}
+function importIA(){
+  const raw=document.getElementById('iaText').value;
+  let data; try{data=JSON.parse(extractJSON(raw));}catch(e){alert('Não consegui ler o JSON. Cole o bloco JSON completo que o Claude gerou.');return;}
+  const arr=data.imoveis||data['imóveis']||(Array.isArray(data)?data:[data]);
+  if(!Array.isArray(arr)||!arr.length){alert('JSON sem lista de imóveis.');return;}
+  const VALID=['OK','Pendente','Problema','N/A'];
+  let okN=0,notFound=[],itens=0,extras=0;
+  arr.forEach(im=>{const id=(''+(im.id||'')).trim();if(!id)return;
+    const r=RAW.find(x=>x.id===id)||(FAVMETA[id]&&FAVMETA[id].preco!=null?rowFromMeta(FAVMETA[id]):null);
+    if(!r){notFound.push(id);return;}
+    const ck=checklist(r,EPof(r)),byKey={};ck.forEach(c=>byKey[c.chave]=c.i);
+    (im.checklist||[]).forEach(f=>{const i=byKey[(f.chave||'').trim()];if(i==null)return;
+      CKST[id]=CKST[id]||{};CKST[id][i]=Object.assign({},CKST[id][i]);
+      if(VALID.includes(f.status))CKST[id][i].status=f.status;
+      if(f.evidencia!=null||f.evid!=null)CKST[id][i].evid=(f.evidencia||f.evid||'');
+      if(f.obs!=null)CKST[id][i].obs=f.obs;
+      CKST[id][i].ai=true;itens++;});
+    const ax=AIX[id]||{};
+    if(im.resumo)ax.resumo=im.resumo;
+    if(Array.isArray(im.achados_extras))ax.achados=(ax.achados||[]).concat(im.achados_extras.map(x=>({titulo:x.titulo||'',detalhe:x.detalhe||'',relevancia:(x.relevancia||'').toLowerCase()})));
+    if(im.resumo||im.achados_extras){AIX[id]=ax;extras+=(im.achados_extras||[]).length;}
+    okN++;});
+  saveLS('ck_state',CKST);saveLS('aix',AIX);render();if(modalbg.style.display==='flex')drawModal();closeIAImport();
+  alert('Importado: '+okN+' imóvel(is), '+itens+' item(ns) do checklist, '+extras+' achado(s).'+(notFound.length?(' Não encontrei (favorite/carregue o CSV): '+notFound.join(', ')):''));
+}
+function ensureAix(id){AIX[id]=AIX[id]||{};AIX[id].achados=AIX[id].achados||[];return AIX[id];}
+function setAix(id,i,f,v){const ax=ensureAix(id);ax.achados[i]=Object.assign({},ax.achados[i]);ax.achados[i][f]=v;saveLS('aix',AIX);}
+function addAix(id){ensureAix(id).achados.push({titulo:'',detalhe:'',relevancia:''});saveLS('aix',AIX);drawModal();}
+function delAix(id,i){ensureAix(id).achados.splice(i,1);saveLS('aix',AIX);drawModal();}
+function aiAchadosCard(r){const ax=AIX[r.id]||{},ach=ax.achados||[];
+  let b='<div class="card" style="margin-top:14px"><h4>🤖 Achados da IA / anotações</h4>';
+  if(ax.resumo)b+='<div class="muted" style="margin-bottom:8px">'+esc(ax.resumo)+'</div>';
+  if(!ach.length&&!ax.resumo)b+='<div class="muted">Nenhum achado ainda. Gere o prompt em "🤖 Gerar prompt p/ IA" (nos favoritos), cole o resultado em "📥 Importar análise IA", ou adicione manualmente abaixo.</div>';
+  ach.forEach((x,i)=>{const cl=x.relevancia==='alta'?'r':(x.relevancia==='média'||x.relevancia==='media')?'y':'';
+    b+='<div class="ckrow"><div style="display:flex;gap:8px;align-items:center"><input value="'+esc(x.titulo)+'" placeholder="Título" onchange="setAix(\''+r.id+'\','+i+',\'titulo\',this.value)" style="flex:1;font-weight:600">'+(x.relevancia?'<span class="pill '+cl+'">'+esc(x.relevancia)+'</span>':'')+'<button class="ghost" style="padding:2px 8px" onclick="delAix(\''+r.id+'\','+i+')">✕</button></div><textarea placeholder="Detalhe" onchange="setAix(\''+r.id+'\','+i+',\'detalhe\',this.value)" style="width:100%;margin-top:6px;background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:6px;padding:6px;font-size:12px;min-height:40px">'+esc(x.detalhe)+'</textarea></div>';});
+  return b+'<button class="ghost" style="margin-top:8px" onclick="addAix(\''+r.id+'\')">+ Adicionar achado</button></div>';}
 
 // ---- export: preenche o modelo profissional (.xlsx) por finalista ----
 function baixarBlob(blob,nome){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=nome;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},1500);}
@@ -678,17 +744,17 @@ const GLOBAL_INPUTS=['pVendaPct','pPrazoVenda','pJuros','pEntrada','pItbi','pCor
 function collectState(){
   const globals={};
   GLOBAL_INPUTS.forEach(id=>{const el=document.getElementById(id);if(el)globals[id]=el.value;});
-  return {v:4,fin:FIN,ck:CKST,far:FAR,pov:POV,favmeta:FAVMETA,debt:DEBT,comp:COMP,ref:REF,cen:CEN,globals};
+  return {v:5,fin:FIN,ck:CKST,far:FAR,pov:POV,favmeta:FAVMETA,debt:DEBT,comp:COMP,ref:REF,cen:CEN,aix:AIX,globals};
 }
 function hydrateState(d){
   if(!d||typeof d!=='object')return;
   HYDRATING=true;
   try{
     const repl=(obj,src)=>{Object.keys(obj).forEach(k=>delete obj[k]);if(src&&typeof src==='object')Object.assign(obj,src);};
-    repl(FIN,d.fin);repl(CKST,d.ck);repl(FAR,d.far);repl(POV,d.pov);repl(FAVMETA,d.favmeta);repl(DEBT,d.debt);repl(COMP,d.comp);repl(REF,d.ref);repl(CEN,d.cen);
+    repl(FIN,d.fin);repl(CKST,d.ck);repl(FAR,d.far);repl(POV,d.pov);repl(FAVMETA,d.favmeta);repl(DEBT,d.debt);repl(COMP,d.comp);repl(REF,d.ref);repl(CEN,d.cen);repl(AIX,d.aix);
     if(d.globals)Object.keys(d.globals).forEach(id=>{const el=document.getElementById(id);if(el&&d.globals[id]!=null&&(id!=='fCidade'||[...el.options].some(o=>o.value===d.globals[id])))el.value=d.globals[id];});
     // grava localmente sem disparar cloudSave
-    try{localStorage.setItem('fin_sel',JSON.stringify(FIN));localStorage.setItem('ck_state',JSON.stringify(CKST));localStorage.setItem('far_state',JSON.stringify(FAR));localStorage.setItem('prem_over',JSON.stringify(POV));localStorage.setItem('fav_meta',JSON.stringify(FAVMETA));localStorage.setItem('debt',JSON.stringify(DEBT));localStorage.setItem('comp',JSON.stringify(COMP));localStorage.setItem('ref',JSON.stringify(REF));localStorage.setItem('cen',JSON.stringify(CEN));}catch(e){}
+    try{localStorage.setItem('fin_sel',JSON.stringify(FIN));localStorage.setItem('ck_state',JSON.stringify(CKST));localStorage.setItem('far_state',JSON.stringify(FAR));localStorage.setItem('prem_over',JSON.stringify(POV));localStorage.setItem('fav_meta',JSON.stringify(FAVMETA));localStorage.setItem('debt',JSON.stringify(DEBT));localStorage.setItem('comp',JSON.stringify(COMP));localStorage.setItem('ref',JSON.stringify(REF));localStorage.setItem('cen',JSON.stringify(CEN));localStorage.setItem('aix',JSON.stringify(AIX));}catch(e){}
   }finally{HYDRATING=false;}
   updateFavTab();if(RAW.length)applyFilters();else if(VIEW==='fav')render();
 }
@@ -709,7 +775,7 @@ async function cloudLoad(){
     if(data&&data.data){hadCloud=true;hydrateState(data.data);}
   }catch(e){console.warn('cloudLoad falhou',e);}
   _loaded=true;
-  if(!hadCloud){const local=Object.keys(FIN).length+Object.keys(CKST).length+Object.keys(FAR).length+Object.keys(POV).length+Object.keys(FAVMETA).length+Object.keys(DEBT).length+Object.keys(COMP).length+Object.keys(REF).length+Object.keys(CEN).length;if(local)cloudSave();}
+  if(!hadCloud){const local=Object.keys(FIN).length+Object.keys(CKST).length+Object.keys(FAR).length+Object.keys(POV).length+Object.keys(FAVMETA).length+Object.keys(DEBT).length+Object.keys(COMP).length+Object.keys(REF).length+Object.keys(CEN).length+Object.keys(AIX).length;if(local)cloudSave();}
 }
 function updateGate(){
   const authed=!!(SB&&USER);
