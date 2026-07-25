@@ -121,7 +121,7 @@
     <label>Cidade</label><select id="fCidade" onchange="fillBairros()"><option value="">— carregue o CSV —</option></select>
     <label>Bairro</label><select id="fBairro"><option value="">— todos os bairros —</option></select>
     <label>Valor máximo (R$)</label><input type="number" id="fValor" placeholder="vazio = sem limite">
-    <label>Tipos</label><div id="fTipos"></div>
+    <label>Tipos <span class="muted" style="font-weight:400;font-size:11px">(<a href="#" onclick="setAllTipos(true);return false">todos</a> · <a href="#" onclick="setAllTipos(false);return false">nenhum</a>)</span></label><div id="fTipos"></div>
     <button style="width:100%;margin-top:10px" onclick="applyFilters()">Aplicar filtros</button>
     <h3>3 · Premissas globais</h3>
     <div class="row2">
@@ -383,6 +383,7 @@ function fillBairros(){
   fBairro.innerHTML='<option value="">— todos os bairros —</option>'+keys.map(n=>`<option value="${n}">${map[n]}</option>`).join('');
   fBairro.value=(cur&&map[cur])?cur:'';
 }
+function setAllTipos(v){document.querySelectorAll('.tp').forEach(c=>c.checked=v);applyFilters();}
 function applyFilters(){if(!RAW.length)return;const cid=fCidade.value,bai=fBairro.value,vmax=+fValor.value||Infinity;const tps=[...document.querySelectorAll('.tp:checked')].map(x=>x.value);FILTERED=RAW.filter(r=>(!cid||r.cidadeN===cid)&&(!bai||normCity(r.bairro)===bai)&&r.preco<=vmax&&tps.includes(r.tipo));render();}
 function recalc(){render();if(modalbg.style.display==='flex')drawModal();if(typeof cloudSave==='function')cloudSave();}
 function render(){const p=P();FILTERED.forEach(r=>{const a=avistaSeries(r,p).slice(-1)[0];r._luc=a.ll;r._roi=calc(r,p).investAvista?a.ll/calc(r,p).investAvista:0;r._far=farol(r,p);r._lance=lanceMax(r,p).lance;});FILTERED.sort((x,y)=>SORT.dir*((x[SORT.k]??-1e18)>(y[SORT.k]??-1e18)?1:-1));
