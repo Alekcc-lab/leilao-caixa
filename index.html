@@ -153,7 +153,7 @@
     <div class="finbar" id="finbar" style="display:none">
       <b id="finCount">0</b><span class="muted">favoritos</span>
       <button onclick="exportModelo()">📊 Exportar planilha (modelo)</button>
-      <button class="ghost" onclick="promptIA()">🤖 Gerar prompt p/ IA</button>
+      <button class="ghost" onclick="promptIA()">🤖 Gerar prompt IA (marcados)</button>
       <button class="ghost" onclick="openIAImport()">📥 Importar análise IA</button>
       <button class="ghost" onclick="clearFin()">Limpar favoritos</button>
     </div>
@@ -181,7 +181,11 @@ function origemOf(r){const o=ORIGEM[r.id];return (o&&o.tipo)?o.tipo:origemGuess(
 function origemManual(r){return !!(ORIGEM[r.id]&&ORIGEM[r.id].tipo);}
 function isJudicial(r){const o=origemOf(r);return o==='Judicial'||o==='Penhora';}
 function matchOrigem(s){s=(''+s).toLowerCase();if(/extra|fiduc|9\.?514|consolida/.test(s))return 'Extrajudicial - fiduciária/financiamento';if(/penhora/.test(s))return 'Penhora';if(/judicial|execu[çc]/.test(s))return 'Judicial';if(/heran|invent/.test(s))return 'Herança/inventário';if(/da[çc][ãa]o/.test(s))return 'Dação em pagamento';return 'Outro / A confirmar';}
-let VIEW='all';
+let VIEW='all', IASEL={};
+function isAnalyzed(id){if(AIX[id]&&((AIX[id].achados&&AIX[id].achados.length)||AIX[id].resumo))return true;const st=CKST[id]||{};return Object.keys(st).some(k=>st[k]&&st[k].ai);}
+function iaSelected(id){return IASEL[id]!==undefined?IASEL[id]:!isAnalyzed(id);}
+function toggleIASel(id,v){IASEL[id]=v;}
+function setAllIA(v){Object.keys(FIN).filter(k=>FIN[k]).forEach(id=>IASEL[id]=v);if(VIEW==='fav')render();}
 const DEBT_TYPES=['Condomínio vencido','IPTU vencido','Água','Energia','Gás','Multas condominiais','Custas p/ baixa de ônus','Outros'];
 function debtRows(id){return DEBT[id]||DEBT_TYPES.map(t=>({tipo:t,valor:0,coberto:'Não',status:'Pendente'}));}
 function debtBuyer(r){const rows=DEBT[r.id];if(!rows)return null;let s=0;rows.forEach(x=>{if(x.coberto!=='Sim'&&x.status!=='N/A')s+=(+x.valor||0);});return s;}
@@ -229,8 +233,8 @@ function renderFavorites(p){
   const urg=online.filter(x=>{const du=daysUntil(x.meta.prazo);return du!=null&&du<=3;}).length;
   stats.innerHTML=[['Favoritos',items.length],['Fora da lista',fora],['Online s/ prazo',semPrazo],['Prazo urgente/vencido',urg]].map(s=>`<div class="stat">${s[0]}<b>${s[1]}</b></div>`).join('');
   if(!items.length){tableWrap.innerHTML='<div class="empty">Nenhum favorito ainda.<br>Vá em <b>Todos</b> e marque imóveis com ★.</div>';finbar.style.display='none';return;}
-  const cols=['★','Status','Cidade','Tipo','Bairro','Preço','Desc.%','Modalidade','Prazo leilão','Lance máx.','Farol','Abrir'];
-  let h='<table class="mono"><thead><tr>'+cols.map(c=>`<th>${c}</th>`).join('')+'</tr></thead><tbody>';
+  const cols=['★','IA','Status','Cidade','Tipo','Bairro','Preço','Desc.%','Modalidade','Prazo leilão','Lance máx.','Farol','Abrir'];
+  let h='<div class="muted" style="margin-bottom:6px">Coluna <b>IA</b>: marque quais imóveis entram no "🤖 Gerar prompt p/ IA" (já analisados vêm com 🤖 e desmarcados). <a href="#" onclick="setAllIA(true);return false">todos</a> · <a href="#" onclick="setAllIA(false);return false">nenhum</a></div><table class="mono"><thead><tr>'+cols.map(c=>`<th>${c}</th>`).join('')+'</tr></thead><tbody>';
   items.forEach(x=>{
     const d=x.data,on=isOnlineSale(d.modal);
     let precoCell=fmt(d.preco);
@@ -239,7 +243,7 @@ function renderFavorites(p){
     const prazoCell=on?`<input type="date" value="${x.meta.prazo||''}" onclick="event.stopPropagation()" onchange="setPrazo('${x.id}',this.value)">`+prazoStatus(x.meta.prazo):'<span class="muted">—</span>';
     let farolCell='<span class="muted">—</span>',lanceCell='<span class="muted">—</span>';
     if(x.present){const dec=decisao(x.row,EPof(x.row)),fr=dec.fr;farolCell=`<span class="pill ${fr.verd==='VERDE'?'g':fr.verd==='AMARELO'?'y':'r'}">${fr.verd}</span>`;lanceCell=`<span class="${dec.folga<0?'neg':''}">${fmt(dec.lance)}</span>${dec.folga<0?' ⛔':''}`;}
-    h+=`<tr onclick="openDetail('${x.id}')"><td onclick="event.stopPropagation();toggleFin('${x.id}')" style="cursor:pointer">⭐</td><td>${status}</td><td>${d.cidade||'—'}</td><td>${d.tipo||'—'}</td><td>${d.bairro||'—'}</td><td class="rt">${precoCell}</td><td class="rt">${d.desc!=null?(+d.desc).toFixed(1):'—'}%</td><td>${d.modal||'—'}</td><td>${prazoCell}</td><td class="rt">${lanceCell}</td><td>${farolCell}</td><td>🔍</td></tr>`;
+    h+=`<tr onclick="openDetail('${x.id}')"><td onclick="event.stopPropagation();toggleFin('${x.id}')" style="cursor:pointer">⭐</td><td onclick="event.stopPropagation()"><input type="checkbox" ${iaSelected(x.id)?'checked':''} onchange="toggleIASel('${x.id}',this.checked)" style="width:auto" title="incluir no prompt da IA">${isAnalyzed(x.id)?' <span title="já analisado pela IA">🤖</span>':''}</td><td>${status}</td><td>${d.cidade||'—'}</td><td>${d.tipo||'—'}</td><td>${d.bairro||'—'}</td><td class="rt">${precoCell}</td><td class="rt">${d.desc!=null?(+d.desc).toFixed(1):'—'}%</td><td>${d.modal||'—'}</td><td>${prazoCell}</td><td class="rt">${lanceCell}</td><td>${farolCell}</td><td>🔍</td></tr>`;
   });
   h+='</tbody></table>';tableWrap.innerHTML=h;finbar.style.display='flex';finCount.textContent=items.length;
 }
@@ -622,8 +626,8 @@ function exportFinalists(){const ids=Object.keys(FIN).filter(k=>FIN[k]);const ro
 function copyText(t,msg){navigator.clipboard.writeText(t).then(()=>alert(msg)).catch(()=>{const w=window.open('','_blank');w.document.write('<pre>'+t.replace(/</g,'&lt;')+'</pre>');});}
 function favRows(){const ids=Object.keys(FIN).filter(k=>FIN[k]);return ids.map(id=>RAW.find(r=>r.id===id)||(FAVMETA[id]&&FAVMETA[id].preco!=null?rowFromMeta(FAVMETA[id]):null)).filter(Boolean);}
 function promptIA(){
-  const rows=favRows();
-  if(!rows.length){alert('Selecione finalistas com a ★ (e carregue o CSV que os contenha).');return;}
+  const rows=favRows().filter(r=>iaSelected(r.id));
+  if(!rows.length){alert('Marque ao menos um imóvel na coluna "IA" da aba ★ Favoritos (os já analisados vêm desmarcados). Carregue o CSV que os contenha.');return;}
   const ck=checklist(rows[0],EPof(rows[0]));
   const keysDoc=ck.filter(c=>/^(edital|matricula|certidoes|ocupacao|debito)/.test(c.chave));
   let t='Você é um analista de leilão de imóveis. Para cada imóvel abaixo, leia a MATRÍCULA e o EDITAL (abra os links; se não conseguir abrir algum, me avise para eu anexar o PDF) e devolva SOMENTE um JSON no formato do final, sem nenhum texto fora do JSON.\n\n';
