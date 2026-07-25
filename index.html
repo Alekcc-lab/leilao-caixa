@@ -145,9 +145,18 @@
 <script src="config.js"></script>
 <script>
 let RAW=[], FILTERED=[], SORT={k:'desc',dir:-1};
-const FIN=loadLS('fin_sel',{}), CKST=loadLS('ck_state',{}), FAR=loadLS('far_state',{}), POV=loadLS('prem_over',{}), FAVMETA=loadLS('fav_meta',{});
+const FIN=loadLS('fin_sel',{}), CKST=loadLS('ck_state',{}), FAR=loadLS('far_state',{}), POV=loadLS('prem_over',{}), FAVMETA=loadLS('fav_meta',{}), DEBT=loadLS('debt',{}), COMP=loadLS('comp',{}), REF=loadLS('ref',{}), CEN=loadLS('cen',{});
 let VIEW='all';
-function EPof(r){return Object.assign({},P(),POV[r.id]||{});}
+const DEBT_TYPES=['Condomínio vencido','IPTU vencido','Água','Energia','Gás','Multas condominiais','Custas p/ baixa de ônus','Outros'];
+function debtRows(id){return DEBT[id]||DEBT_TYPES.map(t=>({tipo:t,valor:0,coberto:'Não',status:'Pendente'}));}
+function debtBuyer(r){const rows=DEBT[r.id];if(!rows)return null;let s=0;rows.forEach(x=>{if(x.coberto!=='Sim'&&x.status!=='N/A')s+=(+x.valor||0);});return s;}
+function compMarket(r){const rows=COMP[r.id];if(!rows||!rows.length||!r.area)return null;const used=rows.filter(x=>x.usar&&(+x.preco)>0&&(+x.area)>0);if(!used.length)return null;const psm=used.map(x=>(+x.preco)/(+x.area));return (psm.reduce((a,b)=>a+b,0)/psm.length)*r.area;}
+function refTotal(r){const rf=REF[r.id];if(!rf)return null;const v={Leve:+rf.leve,'Médio':+rf.medio,Pesado:+rf.pesado}[rf.sel||'Médio'];return isNaN(v)?null:v;}
+function EPof(r){const base=Object.assign({},P(),POV[r.id]||{});
+  if(base.vendaAbs==null&&base.mercado==null){const mv=compMarket(r);if(mv!=null)base.mercado=mv;}
+  const db=debtBuyer(r);if(db!=null)base.debitos=db;
+  const rf=refTotal(r);if(rf!=null)base.reformaTot=rf;
+  return base;}
 function EP(){return EPof(window._cur);}
 function loadLS(k,d){try{return JSON.parse(localStorage.getItem(k))||d}catch(e){return d}}
 function saveLS(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}if(typeof cloudSave==='function')cloudSave();}
@@ -218,8 +227,8 @@ function parseCSV(text){
 }
 
 function P(){return{vendaPct:(+pVendaPct.value||100)/100,juros:+pJuros.value/100,entrada:+pEntrada.value/100,itbi:+pItbi.value/100,corretor:+pCorretor.value/100,imposto:+pImposto.value/100,prazo:+pPrazo.value,registro:+pRegistro.value,reforma:+pReforma.value,cond:+pCond.value,iptu:+pIptu.value,desoc:+pDesoc.value,prazoVenda:+pPrazoVenda.value,tma:(+pTMA.value||12)/100};}
-function tipoParams(tipo,p){const t=(tipo||'').toLowerCase();const terreno=t.includes('terreno')||t.includes('lote'),casa=t.includes('casa');return{terreno,casa,cond:(terreno||casa)?0:p.cond,reforma:terreno?0:p.reforma,desoc:terreno?0:p.desoc,temCond:!(terreno||casa)};}
-function venda(r,p){return p.vendaAbs!=null?p.vendaAbs:r.aval*(p.vendaPct||1);}
+function tipoParams(tipo,p){const t=(tipo||'').toLowerCase();const terreno=t.includes('terreno')||t.includes('lote'),casa=t.includes('casa');return{terreno,casa,cond:(terreno||casa)?0:p.cond,reforma:terreno?0:(p.reformaTot!=null?p.reformaTot:p.reforma),desoc:terreno?0:p.desoc,temCond:!(terreno||casa)};}
+function venda(r,p){return p.vendaAbs!=null?p.vendaAbs:(p.mercado!=null?p.mercado:r.aval*(p.vendaPct||1));}
 // ---- lance máximo recomendado (modelo profissional) ----
 function lanceMax(r,p){
   const c=calc(r,p);
@@ -229,7 +238,7 @@ function lanceMax(r,p){
   const imposto=Math.max(0,(receitaLiq-invAtual)*p.imposto);
   const tma=(p.tma!=null?p.tma:0.12), prazoTot=p.prazoVenda||1;
   const lucroMin=invAtual*(Math.pow(1+tma,prazoTot/12)-1)+0.15*vv;   // lucro mínimo desejado
-  const outros=p.registro+c.tp.reforma+p.desoc+carrego;             // registro+reforma+honorários/conting+carrego
+  const outros=p.registro+c.tp.reforma+p.desoc+carrego+(p.debitos||0);   // registro+reforma+honorários/conting+carrego+débitos assumidos
   const lance=(receitaLiq-outros-imposto-lucroMin)/(1+c.leilo+p.itbi);
   const PR=(p.preco!=null?p.preco:r.preco);
   return {lance,folga:lance-PR,lucroMin,imposto,carrego,receitaLiq,vv,tma};
@@ -260,7 +269,7 @@ function calc(r,p){
   const tp=tipoParams(r.tipo,p);
   const PR=p.preco!=null?p.preco:r.preco;
   const leilo=comLeiloeiroRate(r,p);
-  const custosAq=PR*p.itbi+PR*leilo+p.registro+tp.reforma+tp.desoc;
+  const custosAq=PR*p.itbi+PR*leilo+p.registro+tp.reforma+tp.desoc+(p.debitos||0);
   const investAvista=PR+custosAq;
   const carregoMes=tp.cond+p.iptu;
   const vv=venda(r,p), corr=vv*p.corretor, vrv=vv-corr;
@@ -375,7 +384,7 @@ function openDetail(id){let r=RAW.find(x=>x.id===id);if(!r){const m=FAVMETA[id];
 function closeModal(){modalbg.style.display='none';}
 modalbg.addEventListener('click',e=>{if(e.target===modalbg)closeModal();});
 function setTab(t){CURTAB=t;drawModal();}
-const TABS=[['resumo','Resumo & Farol'],['calc','Cálculos'],['avista','À Vista'],['price','PRICE'],['sac','SAC'],['result','Resultados'],['ck','Checklist'],['crono','🗓 Cronograma']];
+const TABS=[['resumo','Resumo & Farol'],['comp','Comparáveis'],['debitos','Débitos'],['reforma','Reforma'],['cen','Cenários'],['calc','Cálculos'],['avista','À Vista'],['price','PRICE'],['sac','SAC'],['result','Resultados'],['ck','Checklist'],['crono','🗓 Cronograma']];
 
 function drawModal(){
   const r=window._cur,p=EP();const c=calc(r,p),fr=farol(r,p);
@@ -387,7 +396,7 @@ function drawModal(){
   <div id="decWrap">${decBanner(r,p)}</div>
   ${premEditor(r,p)}
   <div class="tabs">${TABS.map(t=>`<button class="${CURTAB===t[0]?'on':''}" onclick="setTab('${t[0]}')">${t[1]}</button>`).join('')}</div>`;
-  b+=({resumo:tabResumo,calc:tabCalc,avista:tabAvista,price:()=>tabFin('PRICE'),sac:()=>tabFin('SAC'),result:tabResult,ck:tabCk,crono:tabCrono})[CURTAB]();
+  b+=({resumo:tabResumo,comp:tabComp,debitos:tabDebitos,reforma:tabReforma,cen:tabCenarios,calc:tabCalc,avista:tabAvista,price:()=>tabFin('PRICE'),sac:()=>tabFin('SAC'),result:tabResult,ck:tabCk,crono:tabCrono})[CURTAB]();
   modal.innerHTML=b;
 }
 function tabResumo(){const r=window._cur,p=EP();const av=avistaSeries(r,p).slice(-1)[0],pr=finSaleSeries(r,p,'PRICE').out.slice(-1)[0],sc=finSaleSeries(r,p,'SAC').out.slice(-1)[0];const c=calc(r,p);const fr=farol(r,p);
@@ -458,6 +467,47 @@ function tabCrono(){
   const leg='<span style="margin-right:12px"><span style="display:inline-block;width:10px;height:10px;background:#2ecc71;border-radius:2px"></span> OK</span><span style="margin-right:12px"><span style="display:inline-block;width:10px;height:10px;background:#f1c40f;border-radius:2px"></span> Pendente</span><span style="margin-right:12px"><span style="display:inline-block;width:10px;height:10px;background:#e74c3c;border-radius:2px"></span> Problema</span><span><span style="display:inline-block;width:10px;height:10px;background:#5b6b8c;border-radius:2px"></span> N/A</span>';
   return `<div class="card"><h4>🗓 Cronograma da diligência (Gantt)</h4><div style="overflow-x:auto">${g}</div><div class="muted" style="margin-top:8px">${leg}${semData?' · '+semData+' item(ns) sem prazo definido (defina Início/Fim na aba Checklist)':''}</div></div>`;
 }
+function tabDebitos(){const r=window._cur;const rows=debtRows(r.id);let total=0,buyer=0;
+  rows.forEach(x=>{total+=(+x.valor||0);if(x.coberto!=='Sim'&&x.status!=='N/A')buyer+=(+x.valor||0);});
+  let b=`<div class="card"><h4>Débitos, ônus e obrigações</h4><div class="muted" style="margin-bottom:8px">"Coberto por terceiro?" = Caixa/edital assume. O que sobra para o comprador entra no investimento e <b>reduz o Lance Máximo</b>.</div>
+  <table class="mono"><thead><tr><th>Tipo</th><th class="rt">Valor R$</th><th>Coberto?</th><th>Status</th><th class="rt">Custo comprador</th></tr></thead><tbody>`;
+  rows.forEach((x,i)=>{const cust=(x.coberto!=='Sim'&&x.status!=='N/A')?(+x.valor||0):0;
+    b+=`<tr><td>${esc(x.tipo)}</td><td class="rt"><input type="number" value="${+x.valor||0}" onchange="setDebt('${r.id}',${i},'valor',this.value)" style="width:110px;text-align:right"></td>
+      <td><select onchange="setDebt('${r.id}',${i},'coberto',this.value)">${['Não','Sim','A confirmar'].map(o=>`<option ${o===x.coberto?'selected':''}>${o}</option>`).join('')}</select></td>
+      <td><select onchange="setDebt('${r.id}',${i},'status',this.value)">${['Pendente','OK','Problema','N/A'].map(o=>`<option ${o===x.status?'selected':''}>${o}</option>`).join('')}</select></td>
+      <td class="rt">${fmt(cust)}</td></tr>`;});
+  return b+`</tbody></table><div style="display:flex;gap:22px;margin-top:10px;flex-wrap:wrap"><span class="muted">Total apurado: <b>R$ ${fmt(total)}</b></span><span class="muted">Assumido pelo comprador: <b class="neg">R$ ${fmt(buyer)}</b></span></div></div>`;}
+function setDebt(id,i,field,v){const rows=debtRows(id).map(x=>({...x}));rows[i][field]=(field==='valor'?(+v||0):v);DEBT[id]=rows;saveLS('debt',DEBT);render();if(modalbg.style.display==='flex')drawModal();}
+function tabComp(){const r=window._cur;const rows=COMP[r.id]||[];
+  const used=rows.filter(x=>x.usar&&(+x.preco)>0&&(+x.area)>0);const psm=used.map(x=>(+x.preco)/(+x.area));
+  const avg=psm.length?psm.reduce((a,b)=>a+b,0)/psm.length:0;const mv=(avg&&r.area)?avg*r.area:0;
+  const conf=used.length>=5?'ALTA':used.length>=3?'MÉDIA':'BAIXA';
+  let b=`<div class="card"><h4>Comparáveis de mercado</h4><div class="muted" style="margin-bottom:8px">O R$/m² médio dos comparáveis marcados × área (${r.area||'?'} m²) vira o <b>valor de mercado</b> deste imóvel (substitui a avaliação da Caixa nos cálculos).</div>
+  <table class="mono"><thead><tr><th>#</th><th class="rt">Preço R$</th><th class="rt">Área m²</th><th class="rt">R$/m²</th><th>Usar?</th><th></th></tr></thead><tbody>`;
+  rows.forEach((x,i)=>{const ps=(+x.preco>0&&+x.area>0)?(+x.preco)/(+x.area):0;
+    b+=`<tr><td>${i+1}</td><td class="rt"><input type="number" value="${+x.preco||0}" onchange="setComp('${r.id}',${i},'preco',this.value)" style="width:110px;text-align:right"></td>
+      <td class="rt"><input type="number" value="${+x.area||0}" onchange="setComp('${r.id}',${i},'area',this.value)" style="width:80px;text-align:right"></td>
+      <td class="rt">${ps?fmt(ps):'—'}</td><td><input type="checkbox" ${x.usar?'checked':''} onchange="setComp('${r.id}',${i},'usar',this.checked)" style="width:auto"></td>
+      <td><button class="ghost" style="padding:2px 8px" onclick="delComp('${r.id}',${i})">✕</button></td></tr>`;});
+  return b+`</tbody></table><button class="ghost" style="margin-top:8px" onclick="addComp('${r.id}')">+ Adicionar comparável</button>
+  <div style="display:flex;gap:22px;margin-top:10px;flex-wrap:wrap"><span class="muted">Usados: <b>${used.length}</b></span><span class="muted">R$/m² médio: <b>${avg?fmt(avg):'—'}</b></span><span class="muted">Valor de mercado: <b style="color:#5be59a">${mv?('R$ '+fmt(mv)):'—'}</b></span><span class="muted">Confiança: <b>${conf}</b></span></div></div>`;}
+function setComp(id,i,field,v){const rows=(COMP[id]||[]).map(x=>({...x}));rows[i][field]=(field==='usar'?!!v:(+v||0));COMP[id]=rows;saveLS('comp',COMP);render();if(modalbg.style.display==='flex')drawModal();}
+function addComp(id){COMP[id]=(COMP[id]||[]).concat([{preco:0,area:0,usar:true}]);saveLS('comp',COMP);drawModal();}
+function delComp(id,i){COMP[id]=(COMP[id]||[]).filter((_,j)=>j!==i);saveLS('comp',COMP);render();drawModal();}
+function tabReforma(){const r=window._cur;const rf=REF[r.id]||{sel:'Médio'};const applied=refTotal(r);
+  let b=`<div class="card"><h4>Orçamento de reforma — 3 cenários</h4><div class="muted" style="margin-bottom:8px">Informe o custo total de reforma em cada cenário e escolha qual se aplica. O escolhido substitui a "Reforma R$" das premissas deste imóvel.</div>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">`;
+  [['Leve','leve'],['Médio','medio'],['Pesado','pesado']].forEach(([lbl,key])=>{
+    b+=`<div class="card" style="background:${rf.sel===lbl?'#22314f':'var(--panel2)'}"><label style="display:flex;gap:6px;align-items:center;cursor:pointer;margin:0"><input type="radio" name="refsel" ${rf.sel===lbl?'checked':''} onchange="setRef('${r.id}','sel','${lbl}')" style="width:auto">${lbl}</label>
+    <input type="number" placeholder="total R$" value="${rf[key]!=null&&rf[key]!==''?rf[key]:''}" onchange="setRef('${r.id}','${key}',this.value)" style="margin-top:6px"></div>`;});
+  return b+`</div><div class="muted" style="margin-top:10px">Reforma aplicada (${rf.sel||'Médio'}): <b style="color:#5be59a">${applied!=null?('R$ '+fmt(applied)):'— (preencha o cenário selecionado)'}</b></div></div>`;}
+function setRef(id,field,v){const rf=Object.assign({sel:'Médio'},REF[id]||{});rf[field]=(['leve','medio','pesado'].includes(field)?(+v||0):v);REF[id]=rf;saveLS('ref',REF);render();if(modalbg.style.display==='flex')drawModal();}
+function tabCenarios(){const r=window._cur;const sel=CEN[r.id]||'Base';
+  let b=`<div class="card"><h4>Cenário de análise</h4><div class="muted" style="margin-bottom:8px">Define a postura da análise: ajusta a reforma selecionada e é marcado na planilha exportada (aba Entradas → Cenário selecionado).</div>`;
+  [['Pessimista',' — reforma Pesado'],['Base',' — reforma Médio'],['Otimista',' — reforma Leve']].forEach(([c,d])=>{
+    b+=`<label class="chk" style="cursor:pointer"><input type="radio" name="censel" ${sel===c?'checked':''} onchange="setCen('${r.id}','${c}')" style="width:auto">${c}<span class="muted">${d}</span></label>`;});
+  return b+'</div>';}
+function setCen(id,c){CEN[id]=c;const rf=Object.assign({sel:'Médio'},REF[id]||{});rf.sel=(c==='Pessimista'?'Pesado':c==='Otimista'?'Leve':'Médio');REF[id]=rf;saveLS('cen',CEN);saveLS('ref',REF);render();if(modalbg.style.display==='flex')drawModal();}
 function tabResult(){const r=window._cur,p=EP();const cats=[];for(let m=1;m<=p.prazoVenda;m++)cats.push(m);
   const av=avistaSeries(r,p),pr=finSaleSeries(r,p,'PRICE'),sc=finSaleSeries(r,p,'SAC');
   const c1=chart(cats,[{name:'À Vista',color:'#4f7cff',data:av.map(x=>x.ll)},{name:'PRICE',color:'#2ecc71',data:pr.out.map(x=>x.ll)},{name:'SAC',color:'#f1c40f',data:sc.out.map(x=>x.ll)}],{title:'Lucro Líquido por mês de venda',fmtY:v=>fmt(v/1000)+'k'});
@@ -535,7 +585,7 @@ function fillModelo(wb,r,p){
   setCell(ent,'B7',r.modal||'');
   if(r.area!=null)setCell(ent,'B8',r.area);
   setCell(ent,'D8','Área privativa da lista Caixa (confirmar na matrícula)');
-  setCell(ent,'B10','Base');
+  setCell(ent,'B10',CEN[r.id]||'Base');
   setCell(ent,'B14',(p.preco!=null?p.preco:r.preco));
   setCell(ent,'D14','Lista Caixa '+(window._dg||''));
   setCell(ent,'B15',c.leilo); setCell(ent,'B16',p.itbi); setCell(ent,'B17',p.registro);
@@ -544,10 +594,19 @@ function fillModelo(wb,r,p){
   // valor de mercado nos 3 cenários (a partir da venda considerada do app)
   const cen=wb.getWorksheet('Cenarios');
   setCell(cen,'B4',Math.round(c.vv*0.92)); setCell(cen,'C4',Math.round(c.vv)); setCell(cen,'D4',Math.round(c.vv*1.05));
-  // Reforma: metragem de pisos = área do imóvel
-  if(r.area!=null)setCell(wb.getWorksheet('Reforma'),'B5',r.area);
-  // Débitos: limpa observações de exemplo
-  const deb=wb.getWorksheet('Debitos'); if(deb)for(let row=4;row<=11;row++)setCell(deb,'I'+row,'');
+  // Reforma: metragem de pisos = área do imóvel + totais dos 3 cenários (se preenchidos no app)
+  const refW=wb.getWorksheet('Reforma');
+  if(r.area!=null)setCell(refW,'B5',r.area);
+  const rf=REF[r.id];
+  if(rf&&refW){if(rf.leve!==''&&rf.leve!=null)setCell(refW,'D16',+rf.leve||0);if(rf.medio!==''&&rf.medio!=null)setCell(refW,'D17',+rf.medio||0);if(rf.pesado!==''&&rf.pesado!=null)setCell(refW,'D18',+rf.pesado||0);}
+  const appliedRef=refTotal(r); if(appliedRef!=null)setCell(cen,'C9',appliedRef);   // reforma base usada pelo Fluxo
+  // Débitos: preenche valores/coberto/status do app e limpa observações de exemplo
+  const deb=wb.getWorksheet('Debitos');
+  if(deb){const drows=debtRows(r.id);drows.forEach((x,i)=>{const row=4+i;setCell(deb,'B'+row,+x.valor||0);setCell(deb,'E'+row,x.coberto||'Não');setCell(deb,'G'+row,x.status||'Pendente');setCell(deb,'I'+row,'');});}
+  const dbBuyer=debtBuyer(r); if(dbBuyer!=null)setCell(cen,'C10',dbBuyer);   // débitos base usados pelo Fluxo
+  // Comparáveis: área/preço/usar de cada linha
+  const cmpW=wb.getWorksheet('Comparaveis'), crows=COMP[r.id]||[];
+  if(cmpW)for(let i=0;i<10;i++){const row=4+i,x=crows[i];setCell(cmpW,'D'+row,x?(+x.area||0):0);setCell(cmpW,'E'+row,x?(+x.preco||0):0);setCell(cmpW,'L'+row,(x&&x.usar)?'Sim':'Não');}
   // diligência (18 itens -> linhas 4..21)
   const dil=wb.getWorksheet('Diligencia'), ck=checklist(r,p);
   ck.forEach((it,i)=>{const row=4+i;
@@ -594,17 +653,17 @@ const GLOBAL_INPUTS=['pVendaPct','pPrazoVenda','pJuros','pEntrada','pItbi','pCor
 function collectState(){
   const globals={};
   GLOBAL_INPUTS.forEach(id=>{const el=document.getElementById(id);if(el)globals[id]=el.value;});
-  return {v:3,fin:FIN,ck:CKST,far:FAR,pov:POV,favmeta:FAVMETA,globals};
+  return {v:4,fin:FIN,ck:CKST,far:FAR,pov:POV,favmeta:FAVMETA,debt:DEBT,comp:COMP,ref:REF,cen:CEN,globals};
 }
 function hydrateState(d){
   if(!d||typeof d!=='object')return;
   HYDRATING=true;
   try{
     const repl=(obj,src)=>{Object.keys(obj).forEach(k=>delete obj[k]);if(src&&typeof src==='object')Object.assign(obj,src);};
-    repl(FIN,d.fin);repl(CKST,d.ck);repl(FAR,d.far);repl(POV,d.pov);repl(FAVMETA,d.favmeta);
+    repl(FIN,d.fin);repl(CKST,d.ck);repl(FAR,d.far);repl(POV,d.pov);repl(FAVMETA,d.favmeta);repl(DEBT,d.debt);repl(COMP,d.comp);repl(REF,d.ref);repl(CEN,d.cen);
     if(d.globals)Object.keys(d.globals).forEach(id=>{const el=document.getElementById(id);if(el&&d.globals[id]!=null&&(id!=='fCidade'||[...el.options].some(o=>o.value===d.globals[id])))el.value=d.globals[id];});
     // grava localmente sem disparar cloudSave
-    try{localStorage.setItem('fin_sel',JSON.stringify(FIN));localStorage.setItem('ck_state',JSON.stringify(CKST));localStorage.setItem('far_state',JSON.stringify(FAR));localStorage.setItem('prem_over',JSON.stringify(POV));localStorage.setItem('fav_meta',JSON.stringify(FAVMETA));}catch(e){}
+    try{localStorage.setItem('fin_sel',JSON.stringify(FIN));localStorage.setItem('ck_state',JSON.stringify(CKST));localStorage.setItem('far_state',JSON.stringify(FAR));localStorage.setItem('prem_over',JSON.stringify(POV));localStorage.setItem('fav_meta',JSON.stringify(FAVMETA));localStorage.setItem('debt',JSON.stringify(DEBT));localStorage.setItem('comp',JSON.stringify(COMP));localStorage.setItem('ref',JSON.stringify(REF));localStorage.setItem('cen',JSON.stringify(CEN));}catch(e){}
   }finally{HYDRATING=false;}
   updateFavTab();if(RAW.length)applyFilters();else if(VIEW==='fav')render();
 }
@@ -625,7 +684,7 @@ async function cloudLoad(){
     if(data&&data.data){hadCloud=true;hydrateState(data.data);}
   }catch(e){console.warn('cloudLoad falhou',e);}
   _loaded=true;
-  if(!hadCloud){const local=Object.keys(FIN).length+Object.keys(CKST).length+Object.keys(FAR).length+Object.keys(POV).length+Object.keys(FAVMETA).length;if(local)cloudSave();}
+  if(!hadCloud){const local=Object.keys(FIN).length+Object.keys(CKST).length+Object.keys(FAR).length+Object.keys(POV).length+Object.keys(FAVMETA).length+Object.keys(DEBT).length+Object.keys(COMP).length+Object.keys(REF).length+Object.keys(CEN).length;if(local)cloudSave();}
 }
 function updateGate(){
   const authed=!!(SB&&USER);
