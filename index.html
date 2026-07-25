@@ -76,6 +76,26 @@
   .ckdates .dl{font-size:10px;color:var(--mut);white-space:nowrap}
   .ckdates input{width:auto}
   @media(max-width:820px){.ckfields{grid-template-columns:1fr 1fr}.ckdates{grid-column:1/-1}}
+  /* abas agrupadas */
+  .tabgrp{display:inline-flex;align-items:center;gap:5px;padding-right:8px;margin-right:2px;border-right:1px solid var(--line)}
+  .tabgrp:last-child{border-right:0}
+  .tabgl{font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:#6b7ba0;font-weight:700;padding-right:2px}
+  .tabs button{transition:filter .12s,background .12s}
+  /* grid de premissas responsivo */
+  .premgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-top:10px}
+  @media(max-width:1100px){.premgrid{grid-template-columns:repeat(4,1fr)}}
+  @media(max-width:700px){.premgrid{grid-template-columns:repeat(2,1fr)}}
+  /* responsivo geral / celular */
+  @media(max-width:820px){
+    .wrap{flex-direction:column}
+    .side{width:100%;min-width:0;height:auto;border-right:0;border-bottom:1px solid var(--line)}
+    .main{height:auto}
+    .modalbg{padding:8px}
+    .modal{padding:14px}
+    .statrow{grid-template-columns:repeat(2,1fr)}
+    .grid3,.grid2{grid-template-columns:1fr}
+    th,td{padding:6px 7px}
+  }
 </style>
 </head>
 <body>
@@ -385,6 +405,9 @@ function closeModal(){modalbg.style.display='none';}
 modalbg.addEventListener('click',e=>{if(e.target===modalbg)closeModal();});
 function setTab(t){CURTAB=t;drawModal();}
 const TABS=[['resumo','Resumo & Farol'],['comp','Comparáveis'],['debitos','Débitos'],['reforma','Reforma'],['cen','Cenários'],['calc','Cálculos'],['avista','À Vista'],['price','PRICE'],['sac','SAC'],['result','Resultados'],['ck','Checklist'],['crono','🗓 Cronograma']];
+const TAB_GROUPS=[['Decisão',['resumo']],['Preparação',['comp','debitos','reforma','cen']],['Financeiro',['calc','avista','price','sac','result']],['Diligência',['ck','crono']]];
+function tabLabel(k){const t=TABS.find(x=>x[0]===k);return t?t[1]:k;}
+function renderTabs(){return '<div class="tabs">'+TAB_GROUPS.map(g=>'<span class="tabgrp"><span class="tabgl">'+g[0]+'</span>'+g[1].map(k=>`<button class="${CURTAB===k?'on':''}" onclick="setTab('${k}')">${tabLabel(k)}</button>`).join('')+'</span>').join('')+'</div>';}
 
 function drawModal(){
   const r=window._cur,p=EP();const c=calc(r,p),fr=farol(r,p);
@@ -395,7 +418,7 @@ function drawModal(){
   ${isOnlineSale(r.modal)?`<div class="muted" style="margin:6px 0">⏳ Prazo do leilão: <input type="date" value="${(FAVMETA[r.id]&&FAVMETA[r.id].prazo)||''}" onchange="setPrazo('${r.id}',this.value)">${prazoStatus((FAVMETA[r.id]||{}).prazo)}${FIN[r.id]?'':' <span class="muted">— favorite ★ para acompanhar o prazo</span>'}</div>`:''}
   <div id="decWrap">${decBanner(r,p)}</div>
   ${premEditor(r,p)}
-  <div class="tabs">${TABS.map(t=>`<button class="${CURTAB===t[0]?'on':''}" onclick="setTab('${t[0]}')">${t[1]}</button>`).join('')}</div>`;
+  ${renderTabs()}`;
   b+=({resumo:tabResumo,comp:tabComp,debitos:tabDebitos,reforma:tabReforma,cen:tabCenarios,calc:tabCalc,avista:tabAvista,price:()=>tabFin('PRICE'),sac:()=>tabFin('SAC'),result:tabResult,ck:tabCk,crono:tabCrono})[CURTAB]();
   modal.innerHTML=b;
 }
@@ -541,13 +564,14 @@ function kv(k,v){return `<div class="kv"><span>${k}</span><b>${v}</b></div>`;}
 function farSel(r,key,label,opts){const f=farolDefaults(r,EP());return `<label style="margin-top:6px">${label}</label><select onchange="setFar('${r.id}','${key}',this.value)">${opts.map(o=>`<option ${o===f[key]?'selected':''}>${o}</option>`).join('')}</select>`;}
 function setFar(id,k,v){FAR[id]=Object.assign(farolDefaults(RAW.find(r=>r.id===id),EP()),{[k]:v});saveLS('far_state',FAR);drawModal();render();}
 function setCkField(id,i,field,v){CKST[id]=CKST[id]||{};CKST[id][i]=CKST[id][i]||{};CKST[id][i][field]=v;saveLS('ck_state',CKST);render();refreshCkLive();}
+function togglePrem(){window._premOpen=!window._premOpen;drawModal();}
 function premEditor(r,p){
-  const ov=POV[r.id]||{},has=Object.keys(ov).length;
+  const ov=POV[r.id]||{},has=Object.keys(ov).length,open=!!window._premOpen;
   const F=(lbl,field,val,step)=>`<div><label style="margin:0 0 2px">${lbl}${ov[field]!=null?' •':''}</label><input type="number" step="${step||'any'}" value="${val}" onchange="setPov('${field}',this.value)"></div>`;
-  return `<div class="card" style="margin:10px 0 4px">
-   <h4 style="margin:0 0 8px">⚙ Premissas deste imóvel ${has?'<span class="pill y">editado</span>':'<span class="muted" style="font-weight:400">(edite para simular só este imóvel)</span>'}
-     <button class="ghost" style="padding:2px 8px;font-size:11px;float:right" onclick="resetPov()">↺ Restaurar globais</button></h4>
-   <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:8px">
+  const head=`<h4 style="margin:0;display:flex;align-items:center;gap:8px;cursor:pointer" onclick="togglePrem()"><span style="width:12px">${open?'▾':'▸'}</span>⚙ Premissas deste imóvel ${has?'<span class="pill y">editado</span>':'<span class="muted" style="font-weight:400">'+(open?'(edite para simular só este imóvel)':'(clique para ajustar)')+'</span>'}<button class="ghost" style="padding:2px 8px;font-size:11px;margin-left:auto" onclick="event.stopPropagation();resetPov()">↺ Restaurar globais</button></h4>`;
+  if(!open)return `<div class="card" style="margin:10px 0 4px;padding:10px 12px">${head}</div>`;
+  return `<div class="card" style="margin:10px 0 4px">${head}
+   <div class="premgrid">
    ${F('Arrematação R$','preco',Math.round(p.preco!=null?p.preco:r.preco))}
    ${F('Venda R$','vendaAbs',Math.round(venda(r,p)))}
    ${F('Prazo venda (m)','prazoVenda',p.prazoVenda)}
