@@ -148,6 +148,7 @@
     <div class="tabs" id="viewTabs">
       <button class="on" data-v="all" onclick="setView('all')">Todos</button>
       <button data-v="fav" onclick="setView('fav')">★ Favoritos (0)</button>
+      <button data-v="shared" onclick="setView('shared')">🤝 Compartilhados (0)</button>
     </div>
     <div class="statrow" id="stats"></div>
     <div id="tableWrap"><div class="empty">Nenhum dado carregado.<br>Baixe a lista em <a href="https://venda-imoveis.caixa.gov.br/sistema/download-lista.asp" target="_blank">download-lista.asp</a> e carregue aqui.</div></div>
@@ -182,7 +183,15 @@ function origemOf(r){const o=ORIGEM[r.id];return (o&&o.tipo)?o.tipo:origemGuess(
 function origemManual(r){return !!(ORIGEM[r.id]&&ORIGEM[r.id].tipo);}
 function isJudicial(r){const o=origemOf(r);return o==='Judicial'||o==='Penhora';}
 function matchOrigem(s){s=(''+s).toLowerCase();if(/extra|fiduc|9\.?514|consolida/.test(s))return 'Extrajudicial - fiduciária/financiamento';if(/penhora/.test(s))return 'Penhora';if(/judicial|execu[çc]/.test(s))return 'Judicial';if(/heran|invent/.test(s))return 'Herança/inventário';if(/da[çc][ãa]o/.test(s))return 'Dação em pagamento';return 'Outro / A confirmar';}
-let VIEW='all', IASEL={};
+let VIEW='all', IASEL={}, SHARED={}, _sharePush={}, _shareTimer=null, _sharePoll=null;
+// dossiê = tudo que você produziu sobre um imóvel (o que se compartilha)
+function collectDossie(id){const d={};const put=(k,v)=>{if(v!==undefined&&v!==null)d[k]=v;};
+  put('ck',CKST[id]);put('far',FAR[id]);put('pov',POV[id]);put('meta',FAVMETA[id]);put('debt',DEBT[id]);put('comp',COMP[id]);put('ref',REF[id]);put('cen',CEN[id]);put('aix',AIX[id]);put('origem',ORIGEM[id]);return d;}
+function applyDossie(id,d){if(!d)return;const set=(m,k)=>{if(d[k]!==undefined)m[id]=d[k];};
+  set(CKST,'ck');set(FAR,'far');set(POV,'pov');set(FAVMETA,'meta');set(DEBT,'debt');set(COMP,'comp');set(REF,'ref');set(CEN,'cen');set(AIX,'aix');set(ORIGEM,'origem');}
+function isShared(id){return !!SHARED[id];}
+function sharedRowFor(id){const s=SHARED[id];if(!s)return null;const m=s.data&&s.data.meta;return m&&m.preco!=null?rowFromMeta(Object.assign({id},m)):null;}
+function ago(ts){if(!ts)return '';const d=Math.floor((Date.now()-new Date(ts))/60000);if(d<1)return 'agora';if(d<60)return d+' min';const h=Math.floor(d/60);if(h<24)return h+'h';return Math.floor(h/24)+'d';}
 function isAnalyzed(id){if(AIX[id]&&((AIX[id].achados&&AIX[id].achados.length)||AIX[id].resumo))return true;const st=CKST[id]||{};return Object.keys(st).some(k=>st[k]&&st[k].ai);}
 function iaSelected(id){return IASEL[id]!==undefined?IASEL[id]:!isAnalyzed(id);}
 function toggleIASel(id,v){IASEL[id]=v;}
@@ -234,7 +243,7 @@ function renderFavorites(p){
   const urg=online.filter(x=>{const du=daysUntil(x.meta.prazo);return du!=null&&du<=3;}).length;
   stats.innerHTML=[['Favoritos',items.length],['Fora da lista',fora],['Online s/ prazo',semPrazo],['Prazo urgente/vencido',urg]].map(s=>`<div class="stat">${s[0]}<b>${s[1]}</b></div>`).join('');
   if(!items.length){tableWrap.innerHTML='<div class="empty">Nenhum favorito ainda.<br>Vá em <b>Todos</b> e marque imóveis com ★.</div>';finbar.style.display='none';return;}
-  const cols=['★','IA','Status','Cidade','Tipo','Bairro','Preço','Desc.%','Modalidade','Prazo leilão','Lance máx.','Farol','Abrir'];
+  const cols=['★','IA','🤝','Status','Cidade','Tipo','Bairro','Preço','Desc.%','Modalidade','Prazo leilão','Lance máx.','Farol','Abrir'];
   let h='<div class="muted" style="margin-bottom:6px">Coluna <b>IA</b>: marque quais imóveis entram no "🤖 Gerar prompt p/ IA" (já analisados vêm com 🤖 e desmarcados). <a href="#" onclick="setAllIA(true);return false">todos</a> · <a href="#" onclick="setAllIA(false);return false">nenhum</a></div><table class="mono"><thead><tr>'+cols.map(c=>`<th>${c}</th>`).join('')+'</tr></thead><tbody>';
   items.forEach(x=>{
     const d=x.data,on=isOnlineSale(d.modal);
@@ -244,11 +253,26 @@ function renderFavorites(p){
     const prazoCell=on?`<input type="date" value="${x.meta.prazo||''}" onclick="event.stopPropagation()" onchange="setPrazo('${x.id}',this.value)">`+prazoStatus(x.meta.prazo):'<span class="muted">—</span>';
     let farolCell='<span class="muted">—</span>',lanceCell='<span class="muted">—</span>';
     if(x.present){const dec=decisao(x.row,EPof(x.row)),fr=dec.fr;farolCell=`<span class="pill ${fr.verd==='VERDE'?'g':fr.verd==='AMARELO'?'y':'r'}">${fr.verd}</span>`;lanceCell=`<span class="${dec.folga<0?'neg':''}">${fmt(dec.lance)}</span>${dec.folga<0?' ⛔':''}`;}
-    h+=`<tr onclick="openDetail('${x.id}')"><td onclick="event.stopPropagation();toggleFin('${x.id}')" style="cursor:pointer">⭐</td><td onclick="event.stopPropagation()"><input type="checkbox" ${iaSelected(x.id)?'checked':''} onchange="toggleIASel('${x.id}',this.checked)" style="width:auto" title="incluir no prompt da IA">${isAnalyzed(x.id)?' <span title="já analisado pela IA">🤖</span>':''}</td><td>${status}</td><td>${d.cidade||'—'}</td><td>${d.tipo||'—'}</td><td>${d.bairro||'—'}</td><td class="rt">${precoCell}</td><td class="rt">${d.desc!=null?(+d.desc).toFixed(1):'—'}%</td><td>${d.modal||'—'}</td><td>${prazoCell}</td><td class="rt">${lanceCell}</td><td>${farolCell}</td><td>🔍</td></tr>`;
+    h+=`<tr onclick="openDetail('${x.id}')"><td onclick="event.stopPropagation();toggleFin('${x.id}')" style="cursor:pointer">⭐</td><td onclick="event.stopPropagation()"><input type="checkbox" ${iaSelected(x.id)?'checked':''} onchange="toggleIASel('${x.id}',this.checked)" style="width:auto" title="incluir no prompt da IA">${isAnalyzed(x.id)?' <span title="já analisado pela IA">🤖</span>':''}</td><td onclick="event.stopPropagation()" style="cursor:pointer">${isShared(x.id)?`<span title="compartilhado com o grupo — editado por ${esc((SHARED[x.id].updated_by_email||'').split('@')[0])} há ${ago(SHARED[x.id].updated_at)}" onclick="setView('shared')">🤝</span>`:`<span title="compartilhar com o grupo" onclick="shareProp('${x.id}')" style="opacity:.45">🤝</span>`}</td><td>${status}</td><td>${d.cidade||'—'}</td><td>${d.tipo||'—'}</td><td>${d.bairro||'—'}</td><td class="rt">${precoCell}</td><td class="rt">${d.desc!=null?(+d.desc).toFixed(1):'—'}%</td><td>${d.modal||'—'}</td><td>${prazoCell}</td><td class="rt">${lanceCell}</td><td>${farolCell}</td><td>🔍</td></tr>`;
   });
   h+='</tbody></table>';tableWrap.innerHTML=h;finbar.style.display='flex';finCount.textContent=items.length;
 }
 
+function renderShared(){
+  const ids=Object.keys(SHARED);
+  const meus=ids.filter(id=>USER&&SHARED[id].owner_id===USER.id).length;
+  stats.innerHTML=[['Compartilhados',ids.length],['Publicados por mim',meus],['De outros',ids.length-meus],['Sincroniza',"30s"]].map(s=>`<div class="stat">${s[0]}<b>${s[1]}</b></div>`).join('');
+  if(!ids.length){tableWrap.innerHTML='<div class="empty">Nada compartilhado ainda.<br>Na aba <b>★ Favoritos</b>, clique em <b>🤝</b> para publicar um imóvel para o grupo — todos podem ver e editar junto.</div>';finbar.style.display='none';return;}
+  let h='<div class="muted" style="margin-bottom:6px">Dossiês <b>colaborativos</b>: qualquer pessoa do grupo edita e as mudanças aparecem para todos (atualiza a cada 30s). <a href="#" onclick="sharedLoad();return false">atualizar agora</a></div>'
+   +'<table class="mono"><thead><tr><th>Imóvel</th><th>Publicado por</th><th>Última edição</th><th class="rt">Preço</th><th>Farol</th><th></th></tr></thead><tbody>';
+  ids.forEach(id=>{const s=SHARED[id];const row=RAW.find(x=>x.id===id)||sharedRowFor(id);
+    const dono=(s.owner_email||'').split('@')[0];const editor=(s.updated_by_email||'').split('@')[0];
+    let farolCell='<span class="muted">—</span>';
+    if(row){const fr=farol(row,EPof(row));farolCell=`<span class="pill ${fr.verd==='VERDE'?'g':fr.verd==='AMARELO'?'y':'r'}">${fr.verd}</span>`;}
+    h+=`<tr onclick="openDetail('${id}')"><td>${esc(s.titulo||id)}${FIN[id]?' ⭐':''}</td><td>${esc(dono)}${USER&&s.owner_id===USER.id?' <span class="pill g">você</span>':''}</td><td>${esc(editor)} · ${ago(s.updated_at)}</td><td class="rt">${row&&row.preco!=null?fmt(row.preco):'—'}</td><td>${farolCell}</td>
+      <td onclick="event.stopPropagation()">${FIN[id]?'':'<button class="ghost" style="padding:2px 8px;font-size:11px" onclick="copyShared(\''+id+'\')">copiar</button> '}${USER&&s.owner_id===USER.id?'<button class="ghost" style="padding:2px 8px;font-size:11px" onclick="unshareProp(\''+id+'\')">✕</button>':''}</td></tr>`;});
+  tableWrap.innerHTML=h+'</tbody></table>';finbar.style.display='none';
+}
 function parseCSV(text){
   const lines=text.split(/\r?\n/);
   let hi=lines.findIndex(l=>l.includes('Cidade')&&l.includes('Pre'));if(hi<0)hi=1;
@@ -424,7 +448,9 @@ function setAllModal(v){document.querySelectorAll('.md').forEach(c=>c.checked=v)
 function applyFilters(){if(!RAW.length)return;const cid=fCidade.value,bai=fBairro.value,vmax=+fValor.value||Infinity;const tps=[...document.querySelectorAll('.tp:checked')].map(x=>x.value);const mdEls=document.querySelectorAll('.md');const mds=[...document.querySelectorAll('.md:checked')].map(x=>x.value);FILTERED=RAW.filter(r=>(!cid||r.cidadeN===cid)&&(!bai||normCity(r.bairro)===bai)&&r.preco<=vmax&&tps.includes(r.tipo)&&(!mdEls.length||mds.includes(r.modal)));render();}
 function recalc(){render();if(modalbg.style.display==='flex')drawModal();if(typeof cloudSave==='function')cloudSave();}
 function render(){const p=P();FILTERED.forEach(r=>{const a=avistaSeries(r,p).slice(-1)[0];r._luc=a.ll;r._roi=calc(r,p).investAvista?a.ll/calc(r,p).investAvista:0;r._far=farol(r,p);r._lance=lanceMax(r,p).lance;});FILTERED.sort((x,y)=>SORT.dir*((x[SORT.k]??-1e18)>(y[SORT.k]??-1e18)?1:-1));
-  updateFavTab();if(VIEW==='fav'){renderFavorites(p);return;}
+  updateFavTab();updateShareTab();
+  if(VIEW==='shared'){renderShared();return;}
+  if(VIEW==='fav'){renderFavorites(p);return;}
   const n=FILTERED.length,avgD=n?FILTERED.reduce((s,r)=>s+r.desc,0)/n:0,best=n?Math.max(...FILTERED.map(r=>r.desc)):0,fin=Object.keys(FIN).filter(k=>FIN[k]).length;
   stats.innerHTML=[['Imóveis',n],['Desconto médio',avgD.toFixed(1)+'%'],['Maior desconto',best.toFixed(1)+'%'],['Favoritos',fin]].map(s=>`<div class="stat">${s[0]}<b>${s[1]}</b></div>`).join('');
   if(!n){tableWrap.innerHTML='<div class="empty">Nenhum imóvel no filtro.</div>';finbar.style.display='none';return;}
@@ -438,7 +464,7 @@ function clearFin(){if(!confirm('Remover TODOS os favoritos? (o checklist e as p
 
 // ---------- detalhe ----------
 let CURTAB='resumo';
-function openDetail(id){let r=RAW.find(x=>x.id===id);if(!r){const m=FAVMETA[id];if(m&&m.preco!=null)r=rowFromMeta(m);}if(!r){alert('Sem dados deste imóvel na lista atual. Carregue uma lista que o contenha para ver a análise completa.');return;}window._cur=r;CURTAB='resumo';drawModal();modalbg.style.display='flex';}
+function openDetail(id){let r=RAW.find(x=>x.id===id);if(!r){const m=FAVMETA[id];if(m&&m.preco!=null)r=rowFromMeta(m);}if(!r)r=sharedRowFor(id);if(!r){alert('Sem dados deste imóvel na lista atual. Carregue uma lista que o contenha para ver a análise completa.');return;}window._cur=r;CURTAB='resumo';drawModal();modalbg.style.display='flex';}
 function closeModal(){modalbg.style.display='none';}
 modalbg.addEventListener('click',e=>{if(e.target===modalbg)closeModal();});
 function setTab(t){CURTAB=t;drawModal();}
@@ -454,6 +480,7 @@ function drawModal(){
   <div class="muted">${r.endereco} · <a href="${r.link}" target="_blank">ver na Caixa ↗</a> · matrícula: <a href="https://venda-imoveis.caixa.gov.br/editais/matricula/${r.uf}/${r.id}.pdf" target="_blank">PDF ↗</a></div>
   ${r._absent?`<div class="pill r" style="display:inline-block;margin:6px 0">⚠ Fora da lista atual — dados de ${(FAVMETA[r.id]&&FAVMETA[r.id].lastDg)||'?'}. Pode ter sido vendido/leiloado.</div>`:''}
   ${isOnlineSale(r.modal)?`<div class="muted" style="margin:6px 0">⏳ Prazo do leilão: <input type="date" value="${(FAVMETA[r.id]&&FAVMETA[r.id].prazo)||''}" onchange="setPrazo('${r.id}',this.value)">${prazoStatus((FAVMETA[r.id]||{}).prazo)}${FIN[r.id]?'':' <span class="muted">— favorite ★ para acompanhar o prazo</span>'}</div>`:''}
+  ${isShared(r.id)?`<div class="pill" style="display:inline-block;margin:6px 0;background:rgba(79,124,255,.16);color:#9bb4ff">🤝 Dossiê colaborativo — publicado por ${esc((SHARED[r.id].owner_email||'').split('@')[0])} · última edição por ${esc((SHARED[r.id].updated_by_email||'').split('@')[0])} há ${ago(SHARED[r.id].updated_at)}. Suas alterações aqui são vistas por todo o grupo.</div>`:''}
   <div id="decWrap">${decBanner(r,p)}</div>
   ${premEditor(r,p)}
   ${renderTabs()}`;
@@ -805,6 +832,7 @@ function hydrateState(d){
 }
 function cloudSave(){
   if(HYDRATING||!SB||!USER||!_loaded)return;
+  Object.keys(SHARED).forEach(id=>pushShared(id));   // edições em imóveis compartilhados vão para o grupo
   clearTimeout(_saveTimer);
   _saveTimer=setTimeout(async()=>{
     try{await SB.from('app_state').upsert({user_id:USER.id,data:collectState(),updated_at:new Date().toISOString()},{onConflict:'user_id'});}
@@ -820,8 +848,69 @@ async function cloudLoad(){
     if(data&&data.data){hadCloud=true;hydrateState(data.data);}
   }catch(e){console.warn('cloudLoad falhou',e);}
   _loaded=true;
+  await sharedLoad(true); startSharedPoll();
   if(!hadCloud){const local=Object.keys(FIN).length+Object.keys(CKST).length+Object.keys(FAR).length+Object.keys(POV).length+Object.keys(FAVMETA).length+Object.keys(DEBT).length+Object.keys(COMP).length+Object.keys(REF).length+Object.keys(CEN).length+Object.keys(AIX).length+Object.keys(ORIGEM).length;if(local)cloudSave();}
 }
+// ---------- compartilhamento colaborativo ----------
+async function sharedLoad(silent){
+  if(!SB||!USER)return;
+  try{
+    const {data,error}=await SB.from('shared_properties').select('*');
+    if(error){if(!silent)console.warn('sharedLoad',error);return;}
+    const novo={};(data||[]).forEach(r=>novo[r.prop_id]=r);
+    // aplica no estado local o que mudou (last-write-wins; ignora o que eu mesmo acabei de salvar)
+    let mudou=false;
+    Object.keys(novo).forEach(id=>{
+      const antes=SHARED[id];
+      if(!antes||new Date(novo[id].updated_at)>new Date(antes.updated_at)){
+        if(novo[id].updated_by!==USER.id||!antes){HYDRATING=true;try{applyDossie(id,novo[id].data);}finally{HYDRATING=false;}mudou=true;}
+      }
+    });
+    SHARED=novo;
+    if(mudou||!silent){updateShareTab();if(RAW.length&&VIEW!=='all')render();else render();if(modalbg.style.display==='flex'&&window._cur&&SHARED[window._cur.id])drawModal();}
+    else updateShareTab();
+  }catch(e){if(!silent)console.warn('sharedLoad falhou',e);}
+}
+function pushShared(id){if(!SB||!USER||!SHARED[id])return;_sharePush[id]=true;clearTimeout(_shareTimer);_shareTimer=setTimeout(flushShared,900);}
+async function flushShared(){
+  const ids=Object.keys(_sharePush);_sharePush={};
+  for(const id of ids){
+    if(!SHARED[id])continue;
+    try{const now=new Date().toISOString();
+      const {error}=await SB.from('shared_properties').update({data:collectDossie(id),updated_at:now,updated_by:USER.id,updated_by_email:USER.email}).eq('prop_id',id);
+      if(error)console.warn('pushShared',error); else {SHARED[id]=Object.assign({},SHARED[id],{data:collectDossie(id),updated_at:now,updated_by:USER.id,updated_by_email:USER.email});}
+    }catch(e){console.warn('pushShared falhou',e);}
+  }
+}
+async function shareProp(id){
+  if(!SB||!USER){alert('Entre com sua conta para compartilhar.');return;}
+  const r=RAW.find(x=>x.id===id)||sharedRowFor(id)||(FAVMETA[id]&&FAVMETA[id].preco!=null?rowFromMeta(FAVMETA[id]):null);
+  const titulo=r?((r.tipo||'')+' · '+(r.bairro||'')+', '+(r.cidade||'')):id;
+  try{
+    const {error}=await SB.from('shared_properties').upsert({prop_id:id,data:collectDossie(id),titulo,owner_id:USER.id,owner_email:USER.email,updated_at:new Date().toISOString(),updated_by:USER.id,updated_by_email:USER.email},{onConflict:'prop_id'});
+    if(error){alert('Não consegui compartilhar: '+error.message+'\n(Rodou o supabase/shared.sql no Supabase?)');return;}
+    await sharedLoad();alert('Compartilhado com o grupo! Todos que entram no app veem e podem editar junto.');
+  }catch(e){alert('Falha ao compartilhar: '+e.message);}
+}
+async function unshareProp(id){
+  if(!SB||!USER)return;
+  const s=SHARED[id];
+  if(s&&s.owner_id!==USER.id){alert('Só quem compartilhou pode remover (publicado por '+(s.owner_email||'outro usuário')+').');return;}
+  if(!confirm('Remover este imóvel do compartilhamento? Ele continua nos SEUS dados; os outros perdem o acesso.'))return;
+  try{const {error}=await SB.from('shared_properties').delete().eq('prop_id',id);
+    if(error){alert('Não consegui remover: '+error.message);return;}
+    delete SHARED[id];updateShareTab();render();if(modalbg.style.display==='flex')drawModal();
+  }catch(e){alert('Falha: '+e.message);}
+}
+function copyShared(id){
+  const s=SHARED[id];if(!s)return;
+  applyDossie(id,s.data);FIN[id]=true;
+  ['ck_state','far_state','prem_over','fav_meta','fin_sel','debt','comp','ref','cen','aix','origem'].forEach(()=>{});
+  saveLS('ck_state',CKST);saveLS('far_state',FAR);saveLS('prem_over',POV);saveLS('fav_meta',FAVMETA);saveLS('fin_sel',FIN);saveLS('debt',DEBT);saveLS('comp',COMP);saveLS('ref',REF);saveLS('cen',CEN);saveLS('aix',AIX);saveLS('origem',ORIGEM);
+  render();alert('Copiado para os seus favoritos.');
+}
+function updateShareTab(){const n=Object.keys(SHARED).length;const b=document.querySelector('#viewTabs [data-v="shared"]');if(b)b.textContent='🤝 Compartilhados ('+n+')';}
+function startSharedPoll(){if(_sharePoll)clearInterval(_sharePoll);_sharePoll=setInterval(()=>{if(!document.hidden&&SB&&USER)sharedLoad(true);},30000);}
 function updateGate(){
   const authed=!!(SB&&USER);
   const w=document.querySelector('.wrap'),g=document.getElementById('gate'),msg=document.getElementById('gateMsg'),btn=document.getElementById('gateBtn');
