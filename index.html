@@ -70,9 +70,12 @@
   input[type=date]{width:auto;padding:5px 7px;font-size:12px;color-scheme:dark}
   .ckrow{padding:8px 0;border-bottom:1px solid #223051}
   .ckhead b{font-weight:600}
-  .ckfields{display:grid;grid-template-columns:120px minmax(0,1fr) 130px 130px;gap:6px;margin-top:6px}
+  .ckfields{display:grid;grid-template-columns:110px minmax(0,1fr) 120px auto;gap:6px;margin-top:6px;align-items:center}
   .ckfields input,.ckfields select{font-size:12px;width:100%}
-  @media(max-width:820px){.ckfields{grid-template-columns:1fr 1fr}}
+  .ckdates{display:flex;gap:4px;align-items:center}
+  .ckdates .dl{font-size:10px;color:var(--mut);white-space:nowrap}
+  .ckdates input{width:auto}
+  @media(max-width:820px){.ckfields{grid-template-columns:1fr 1fr}.ckdates{grid-column:1/-1}}
 </style>
 </head>
 <body>
@@ -314,7 +317,7 @@ function checklist(r,p){const tp=tipoParams(r.tipo,p);const fin=r.fin==='Sim';co
    ["Financeiro","Garantir capital e reserva de contingência","Crítico",true,"Pendente",fin?"Financiável — obter pré-aprovação.":"Recursos próprios — garantir capital + reserva."],
    ["Tributário","Validar tributação com contador","Importante",false,"Pendente","Imposto sobre ganho de capital na revenda."]
   ];
-  const st=CKST[r.id]||{};return base.map((b,i)=>{const o=st[i]||{};return {i,cat:b[0],item:b[1],crit:b[2],bloqueia:b[3],status:o.status||b[4],obs:o.obs!=null?o.obs:b[5],evid:o.evid||'',resp:o.resp||'',data:o.data||''};});}
+  const st=CKST[r.id]||{};return base.map((b,i)=>{const o=st[i]||{};return {i,cat:b[0],item:b[1],crit:b[2],bloqueia:b[3],status:o.status||b[4],obs:o.obs!=null?o.obs:b[5],evid:o.evid||'',resp:o.resp||'',dataIni:o.dataIni||'',dataFim:o.dataFim||''};});}
 
 // ---------- SVG charts ----------
 function chart(cats,series,{type='bar',h=230,fmtY=fmt,title=''}={}){
@@ -372,7 +375,7 @@ function openDetail(id){let r=RAW.find(x=>x.id===id);if(!r){const m=FAVMETA[id];
 function closeModal(){modalbg.style.display='none';}
 modalbg.addEventListener('click',e=>{if(e.target===modalbg)closeModal();});
 function setTab(t){CURTAB=t;drawModal();}
-const TABS=[['resumo','Resumo & Farol'],['calc','Cálculos'],['avista','À Vista'],['price','PRICE'],['sac','SAC'],['result','Resultados'],['ck','Checklist']];
+const TABS=[['resumo','Resumo & Farol'],['calc','Cálculos'],['avista','À Vista'],['price','PRICE'],['sac','SAC'],['result','Resultados'],['ck','Checklist'],['crono','🗓 Cronograma']];
 
 function drawModal(){
   const r=window._cur,p=EP();const c=calc(r,p),fr=farol(r,p);
@@ -384,7 +387,7 @@ function drawModal(){
   <div id="decWrap">${decBanner(r,p)}</div>
   ${premEditor(r,p)}
   <div class="tabs">${TABS.map(t=>`<button class="${CURTAB===t[0]?'on':''}" onclick="setTab('${t[0]}')">${t[1]}</button>`).join('')}</div>`;
-  b+=({resumo:tabResumo,calc:tabCalc,avista:tabAvista,price:()=>tabFin('PRICE'),sac:()=>tabFin('SAC'),result:tabResult,ck:tabCk})[CURTAB]();
+  b+=({resumo:tabResumo,calc:tabCalc,avista:tabAvista,price:()=>tabFin('PRICE'),sac:()=>tabFin('SAC'),result:tabResult,ck:tabCk,crono:tabCrono})[CURTAB]();
   modal.innerHTML=b;
 }
 function tabResumo(){const r=window._cur,p=EP();const av=avistaSeries(r,p).slice(-1)[0],pr=finSaleSeries(r,p,'PRICE').out.slice(-1)[0],sc=finSaleSeries(r,p,'SAC').out.slice(-1)[0];const c=calc(r,p);const fr=farol(r,p);
@@ -421,6 +424,40 @@ function tabFin(sis){const r=window._cur,p=EP();const fs=finSaleSeries(r,p,sis),
   for(let k=1;k<=lim;k++){const x=rows[k];am+=`<tr><td>${k}</td><td class="rt">${fmt(x.parc)}</td><td class="rt">${fmt(x.juros)}</td><td class="rt">${fmt(x.amort)}</td><td class="rt">${fmt(x.saldo)}</td></tr>`;}
   am+='</table></div>';
   return head+am;}
+function parseD(s){if(!s)return null;const d=new Date(s+'T12:00:00');return isNaN(d)?null:d;}
+function d2br(d){return ('0'+d.getDate()).slice(-2)+'/'+('0'+(d.getMonth()+1)).slice(-2);}
+function tabCrono(){
+  const r=window._cur,p=EP();const ck=checklist(r,p);
+  const all=ck.map(it=>({...it,ini:parseD(it.dataIni),fim:parseD(it.dataFim)}));
+  const dated=all.filter(x=>x.ini&&x.fim&&x.fim>=x.ini);
+  const semData=all.length-dated.length;
+  if(!dated.length){
+    return `<div class="card"><h4>🗓 Cronograma da diligência</h4><div class="muted">Defina <b>Início</b> e <b>Fim</b> dos itens na aba <b>Checklist</b> para montar o Gantt.<br>Sugestão: planeje prazos para ler o edital, obter a matrícula, visitar o imóvel, levantar débitos e reunir os comparáveis — o gráfico mostra tudo numa linha do tempo.</div></div>`;
+  }
+  dated.sort((a,b)=>a.ini-b.ini||a.fim-b.fim);
+  const minD=new Date(Math.min(...dated.map(x=>+x.ini))), maxD=new Date(Math.max(...dated.map(x=>+x.fim)));
+  const span=Math.max(1,(maxD-minD)/86400000);
+  const W=760,rowH=30,padL=220,padT=44,padR=18,padB=14,H=padT+dated.length*rowH+padB,iw=W-padL-padR;
+  const xOf=d=>padL+iw*((d-minD)/86400000)/span;
+  const col=st=>st==='OK'?'#2ecc71':st==='Problema'?'#e74c3c':st==='N/A'?'#5b6b8c':'#f1c40f';
+  let g=`<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block;font-family:inherit">`;
+  g+=`<rect x="${padL}" y="${padT-6}" width="${iw}" height="${H-padT-padB+6}" rx="8" fill="#131a2b"/>`;
+  const N=6;
+  for(let k=0;k<=N;k++){const t=new Date(+minD+(maxD-minD)*k/N),gx=xOf(t);
+    g+=`<line x1="${gx.toFixed(1)}" y1="${padT-6}" x2="${gx.toFixed(1)}" y2="${H-padB}" stroke="#27314c"/>`;
+    g+=`<text x="${gx.toFixed(1)}" y="${padT-14}" fill="#8194b8" font-size="9" text-anchor="middle">${d2br(t)}</text>`;}
+  const today=new Date();
+  if(today>=minD&&today<=maxD){const tx=xOf(today);g+=`<line x1="${tx.toFixed(1)}" y1="${padT-6}" x2="${tx.toFixed(1)}" y2="${H-padB}" stroke="#7fa2ff" stroke-width="1.5" stroke-dasharray="4 3"/><text x="${tx.toFixed(1)}" y="${H-3}" fill="#7fa2ff" font-size="9" text-anchor="middle">hoje</text>`;}
+  dated.forEach((x,i)=>{const y=padT+i*rowH,x0=xOf(x.ini),x1=xOf(x.fim),w=Math.max(5,x1-x0);
+    const lbl=x.cat+': '+x.item;
+    g+=`<text x="${padL-8}" y="${(y+rowH/2+3).toFixed(1)}" fill="#cdd8ef" font-size="10" text-anchor="end">${esc(lbl.length>36?lbl.slice(0,35)+'…':lbl)}</text>`;
+    g+=`<rect x="${x0.toFixed(1)}" y="${(y+6).toFixed(1)}" width="${w.toFixed(1)}" height="${rowH-13}" rx="5" fill="${col(x.status)}" opacity="0.92"><title>${esc(x.item)} — ${x.dataIni} → ${x.dataFim} (${x.status})</title></rect>`;
+    if(x.bloqueia)g+=`<text x="${(x0-3).toFixed(1)}" y="${(y+rowH/2+4).toFixed(1)}" font-size="9" text-anchor="end">🔒</text>`;
+  });
+  g+='</svg>';
+  const leg='<span style="margin-right:12px"><span style="display:inline-block;width:10px;height:10px;background:#2ecc71;border-radius:2px"></span> OK</span><span style="margin-right:12px"><span style="display:inline-block;width:10px;height:10px;background:#f1c40f;border-radius:2px"></span> Pendente</span><span style="margin-right:12px"><span style="display:inline-block;width:10px;height:10px;background:#e74c3c;border-radius:2px"></span> Problema</span><span><span style="display:inline-block;width:10px;height:10px;background:#5b6b8c;border-radius:2px"></span> N/A</span>';
+  return `<div class="card"><h4>🗓 Cronograma da diligência (Gantt)</h4><div style="overflow-x:auto">${g}</div><div class="muted" style="margin-top:8px">${leg}${semData?' · '+semData+' item(ns) sem prazo definido (defina Início/Fim na aba Checklist)':''}</div></div>`;
+}
 function tabResult(){const r=window._cur,p=EP();const cats=[];for(let m=1;m<=p.prazoVenda;m++)cats.push(m);
   const av=avistaSeries(r,p),pr=finSaleSeries(r,p,'PRICE'),sc=finSaleSeries(r,p,'SAC');
   const c1=chart(cats,[{name:'À Vista',color:'#4f7cff',data:av.map(x=>x.ll)},{name:'PRICE',color:'#2ecc71',data:pr.out.map(x=>x.ll)},{name:'SAC',color:'#f1c40f',data:sc.out.map(x=>x.ll)}],{title:'Lucro Líquido por mês de venda',fmtY:v=>fmt(v/1000)+'k'});
@@ -445,7 +482,7 @@ function tabCk(){const r=window._cur,p=EP();const ck=checklist(r,p);
         <select onchange="setCkField('${r.id}',${i},'status',this.value)">${['OK','Pendente','Problema','N/A'].map(s=>`<option ${s===c.status?'selected':''}>${s}</option>`).join('')}</select>
         <input placeholder="Evidência / fonte" value="${esc(c.evid)}" onchange="setCkField('${r.id}',${i},'evid',this.value)">
         <input placeholder="Responsável" value="${esc(c.resp)}" onchange="setCkField('${r.id}',${i},'resp',this.value)">
-        <input type="date" value="${esc(c.data)}" onchange="setCkField('${r.id}',${i},'data',this.value)">
+        <div class="ckdates"><span class="dl">Início</span><input type="date" value="${esc(c.dataIni)}" onchange="setCkField('${r.id}',${i},'dataIni',this.value)"><span class="dl">Fim</span><input type="date" value="${esc(c.dataFim)}" onchange="setCkField('${r.id}',${i},'dataFim',this.value)"></div>
       </div></div>`;});
   return b+'</div>';}
 function resetCk(id){if(!confirm('Restaurar o checklist deste imóvel para o padrão do carregamento? As marcações e observações que você alterou neste imóvel serão perdidas.'))return;delete CKST[id];saveLS('ck_state',CKST);render();drawModal();}
@@ -489,6 +526,10 @@ function setCell(ws,addr,val){if(ws)ws.getCell(addr).value=val;}
 function fillModelo(wb,r,p){
   const c=calc(r,p);
   const ent=wb.getWorksheet('Entradas');
+  // título e limpeza dos dados de exemplo (Jundiaí)
+  setCell(ent,'A1','ENTRADAS DO INVESTIMENTO — '+((r.cidade||'').toUpperCase()));
+  ['D5','D6','D7'].forEach(a=>setCell(ent,a,''));                       // evidências de exemplo
+  ['F5','F6','F7','F8','F9','F10','F14','F15','F16','F17'].forEach(a=>setCell(ent,a,''));  // "Validado?" em branco
   setCell(ent,'B5',(r.tipo||'')+' - '+(r.bairro||'')+', '+(r.cidade||''));
   setCell(ent,'B6',r.endereco||'');
   setCell(ent,'B7',r.modal||'');
@@ -500,16 +541,25 @@ function fillModelo(wb,r,p){
   setCell(ent,'B15',c.leilo); setCell(ent,'B16',p.itbi); setCell(ent,'B17',p.registro);
   setCell(ent,'B18',p.desoc); setCell(ent,'B20',p.cond); setCell(ent,'B21',p.iptu);
   setCell(ent,'B25',p.prazoVenda); setCell(ent,'B26',p.corretor); setCell(ent,'B28',p.imposto); setCell(ent,'B29',p.tma);
-  // valor de mercado (cenário Base) = venda considerada do app
-  setCell(wb.getWorksheet('Cenarios'),'C4',c.vv);
+  // valor de mercado nos 3 cenários (a partir da venda considerada do app)
+  const cen=wb.getWorksheet('Cenarios');
+  setCell(cen,'B4',Math.round(c.vv*0.92)); setCell(cen,'C4',Math.round(c.vv)); setCell(cen,'D4',Math.round(c.vv*1.05));
+  // Reforma: metragem de pisos = área do imóvel
+  if(r.area!=null)setCell(wb.getWorksheet('Reforma'),'B5',r.area);
+  // Débitos: limpa observações de exemplo
+  const deb=wb.getWorksheet('Debitos'); if(deb)for(let row=4;row<=11;row++)setCell(deb,'I'+row,'');
   // diligência (18 itens -> linhas 4..21)
   const dil=wb.getWorksheet('Diligencia'), ck=checklist(r,p);
   ck.forEach((it,i)=>{const row=4+i;
     setCell(dil,'B'+row,it.cat); setCell(dil,'C'+row,it.item); setCell(dil,'D'+row,it.crit);
     setCell(dil,'E'+row,it.status); setCell(dil,'F'+row,it.bloqueia?'Sim':'Não');
-    setCell(dil,'G'+row,it.resp||''); if(it.data)setCell(dil,'H'+row,it.data);
+    setCell(dil,'G'+row,it.resp||''); setCell(dil,'H'+row,it.dataFim||it.dataIni||'');
     setCell(dil,'I'+row,it.evid||''); setCell(dil,'J'+row,it.obs||'');
   });
+  // Dashboard: "próximas ações prioritárias" = itens que bloqueiam o lance (reais)
+  const dash=wb.getWorksheet('Dashboard');
+  if(dash){const pend=ck.filter(it=>it.bloqueia&&(it.status==='Pendente'||it.status==='Problema')).slice(0,5);
+    for(let k=0;k<5;k++)setCell(dash,'A'+(27+k), pend[k]?((k+1)+'. '+pend[k].cat+' — '+pend[k].item):'');}
 }
 async function exportModelo(){
   if(typeof ExcelJS==='undefined'){alert('A biblioteca de planilha ainda está carregando. Tente novamente em alguns segundos.');return;}
