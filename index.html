@@ -122,6 +122,7 @@
     <label>Bairro</label><select id="fBairro"><option value="">— todos os bairros —</option></select>
     <label>Valor máximo (R$)</label><input type="number" id="fValor" placeholder="vazio = sem limite">
     <label>Tipos <span class="muted" style="font-weight:400;font-size:11px">(<a href="#" onclick="setAllTipos(true);return false">todos</a> · <a href="#" onclick="setAllTipos(false);return false">nenhum</a>)</span></label><div id="fTipos"></div>
+    <label>Modalidade <span class="muted" style="font-weight:400;font-size:11px">(<a href="#" onclick="setAllModal(true);return false">todas</a> · <a href="#" onclick="setAllModal(false);return false">nenhuma</a>)</span></label><div id="fModal"></div>
     <button style="width:100%;margin-top:10px" onclick="applyFilters()">Aplicar filtros</button>
     <h3>3 · Premissas globais</h3>
     <div class="row2">
@@ -407,7 +408,7 @@ function chart(cats,series,{type='bar',h=230,fmtY=fmt,title=''}={}){
 }
 
 // ---------- carregar CSV ----------
-file.addEventListener('change',e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>{const {rows,dataGer}=parseCSV(rd.result);RAW=rows;window._dg=dataGer;reconcileFavorites(dataGer);dataInfo.innerHTML=`<b>${rows.length}</b> imóveis · geração ${dataGer||'?'}`;hdrsub.textContent=`Lista carregada (${dataGer||'?'}) — ${rows.length} imóveis`;const cids=[...new Set(rows.map(r=>r.cidadeN))].sort();fCidade.innerHTML='<option value="">Todas as cidades</option>'+cids.map(c=>`<option>${c}</option>`).join('');const tps=[...new Set(rows.map(r=>r.tipo))].sort();fTipos.innerHTML=tps.map(t=>`<label class="chk"><input type="checkbox" class="tp" value="${t}" checked>${t}</label>`).join('');fillBairros();applyFilters();};rd.readAsText(f,'ISO-8859-1');});
+file.addEventListener('change',e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>{const {rows,dataGer}=parseCSV(rd.result);RAW=rows;window._dg=dataGer;reconcileFavorites(dataGer);dataInfo.innerHTML=`<b>${rows.length}</b> imóveis · geração ${dataGer||'?'}`;hdrsub.textContent=`Lista carregada (${dataGer||'?'}) — ${rows.length} imóveis`;const cids=[...new Set(rows.map(r=>r.cidadeN))].sort();fCidade.innerHTML='<option value="">Todas as cidades</option>'+cids.map(c=>`<option>${c}</option>`).join('');const tps=[...new Set(rows.map(r=>r.tipo))].sort();fTipos.innerHTML=tps.map(t=>`<label class="chk"><input type="checkbox" class="tp" value="${t}" checked>${t}</label>`).join('');const mds=[...new Set(rows.map(r=>r.modal).filter(Boolean))].sort();fModal.innerHTML=mds.map(m=>`<label class="chk"><input type="checkbox" class="md" value="${esc(m)}" checked>${esc(m)}</label>`).join('');fillBairros();applyFilters();};rd.readAsText(f,'ISO-8859-1');});
 
 function fillBairros(){
   if(!RAW.length)return;
@@ -419,7 +420,8 @@ function fillBairros(){
   fBairro.value=(cur&&map[cur])?cur:'';
 }
 function setAllTipos(v){document.querySelectorAll('.tp').forEach(c=>c.checked=v);applyFilters();}
-function applyFilters(){if(!RAW.length)return;const cid=fCidade.value,bai=fBairro.value,vmax=+fValor.value||Infinity;const tps=[...document.querySelectorAll('.tp:checked')].map(x=>x.value);FILTERED=RAW.filter(r=>(!cid||r.cidadeN===cid)&&(!bai||normCity(r.bairro)===bai)&&r.preco<=vmax&&tps.includes(r.tipo));render();}
+function setAllModal(v){document.querySelectorAll('.md').forEach(c=>c.checked=v);applyFilters();}
+function applyFilters(){if(!RAW.length)return;const cid=fCidade.value,bai=fBairro.value,vmax=+fValor.value||Infinity;const tps=[...document.querySelectorAll('.tp:checked')].map(x=>x.value);const mdEls=document.querySelectorAll('.md');const mds=[...document.querySelectorAll('.md:checked')].map(x=>x.value);FILTERED=RAW.filter(r=>(!cid||r.cidadeN===cid)&&(!bai||normCity(r.bairro)===bai)&&r.preco<=vmax&&tps.includes(r.tipo)&&(!mdEls.length||mds.includes(r.modal)));render();}
 function recalc(){render();if(modalbg.style.display==='flex')drawModal();if(typeof cloudSave==='function')cloudSave();}
 function render(){const p=P();FILTERED.forEach(r=>{const a=avistaSeries(r,p).slice(-1)[0];r._luc=a.ll;r._roi=calc(r,p).investAvista?a.ll/calc(r,p).investAvista:0;r._far=farol(r,p);r._lance=lanceMax(r,p).lance;});FILTERED.sort((x,y)=>SORT.dir*((x[SORT.k]??-1e18)>(y[SORT.k]??-1e18)?1:-1));
   updateFavTab();if(VIEW==='fav'){renderFavorites(p);return;}
