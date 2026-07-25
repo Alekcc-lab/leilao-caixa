@@ -68,6 +68,11 @@
   .gatebox button{margin-top:12px;padding:11px 20px;font-size:15px}
   #viewTabs{margin:0 0 12px}
   input[type=date]{width:auto;padding:5px 7px;font-size:12px;color-scheme:dark}
+  .ckrow{padding:8px 0;border-bottom:1px solid #223051}
+  .ckhead b{font-weight:600}
+  .ckfields{display:grid;grid-template-columns:120px minmax(0,1fr) 130px 130px;gap:6px;margin-top:6px}
+  .ckfields input,.ckfields select{font-size:12px;width:100%}
+  @media(max-width:820px){.ckfields{grid-template-columns:1fr 1fr}}
 </style>
 </head>
 <body>
@@ -110,6 +115,7 @@
       <div><label>Condomínio/mês</label><input type="number" id="pCond" value="350"></div>
       <div><label>IPTU/mês</label><input type="number" id="pIptu" value="80"></div>
       <div><label>Desocup. R$</label><input type="number" id="pDesoc" value="5000"></div>
+      <div><label>TMA % a.a.</label><input type="number" step="0.1" id="pTMA" value="12"></div>
     </div>
     <button class="ghost" style="width:100%;margin-top:10px" onclick="recalc()">Recalcular</button>
     <div class="muted" style="margin-top:8px">Terreno: sem condomínio/reforma. Casa: sem condomínio. "Venda % aval." simula revenda abaixo do laudo.</div>
@@ -123,7 +129,8 @@
     <div id="tableWrap"><div class="empty">Nenhum dado carregado.<br>Baixe a lista em <a href="https://venda-imoveis.caixa.gov.br/sistema/download-lista.asp" target="_blank">download-lista.asp</a> e carregue aqui.</div></div>
     <div class="finbar" id="finbar" style="display:none">
       <b id="finCount">0</b><span class="muted">favoritos</span>
-      <button onclick="exportFinalists()">📋 Exportar favoritos p/ Claude (matrículas)</button>
+      <button onclick="exportModelo()">📊 Exportar planilha (modelo)</button>
+      <button class="ghost" onclick="exportFinalists()">📋 p/ Claude (matrículas)</button>
       <button class="ghost" onclick="clearFin()">Limpar favoritos</button>
     </div>
   </main>
@@ -131,6 +138,7 @@
 <div class="modalbg" id="modalbg"><div class="modal" id="modal"></div></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
 <script src="config.js"></script>
 <script>
 let RAW=[], FILTERED=[], SORT={k:'desc',dir:-1};
@@ -174,7 +182,7 @@ function renderFavorites(p){
   const urg=online.filter(x=>{const du=daysUntil(x.meta.prazo);return du!=null&&du<=3;}).length;
   stats.innerHTML=[['Favoritos',items.length],['Fora da lista',fora],['Online s/ prazo',semPrazo],['Prazo urgente/vencido',urg]].map(s=>`<div class="stat">${s[0]}<b>${s[1]}</b></div>`).join('');
   if(!items.length){tableWrap.innerHTML='<div class="empty">Nenhum favorito ainda.<br>Vá em <b>Todos</b> e marque imóveis com ★.</div>';finbar.style.display='none';return;}
-  const cols=['★','Status','Cidade','Tipo','Bairro','Preço','Desc.%','Modalidade','Prazo leilão','Farol','Abrir'];
+  const cols=['★','Status','Cidade','Tipo','Bairro','Preço','Desc.%','Modalidade','Prazo leilão','Lance máx.','Farol','Abrir'];
   let h='<table class="mono"><thead><tr>'+cols.map(c=>`<th>${c}</th>`).join('')+'</tr></thead><tbody>';
   items.forEach(x=>{
     const d=x.data,on=isOnlineSale(d.modal);
@@ -182,9 +190,9 @@ function renderFavorites(p){
     if(x.present&&x.meta.prevPreco!=null&&x.meta.prevPreco!==d.preco){const del=d.preco-x.meta.prevPreco,dn=del<0;precoCell+=` <span class="pill ${dn?'g':'r'}">${dn?'▼':'▲'} ${fmt(Math.abs(del))}</span>`;}
     const status=x.present?'<span class="pill g">Na lista</span>':'<span class="pill r">Fora da lista</span>'+(x.meta.lastDg?`<div class="muted" style="font-size:10px">visto ${x.meta.lastDg}</div>`:'');
     const prazoCell=on?`<input type="date" value="${x.meta.prazo||''}" onclick="event.stopPropagation()" onchange="setPrazo('${x.id}',this.value)">`+prazoStatus(x.meta.prazo):'<span class="muted">—</span>';
-    let farolCell='<span class="muted">—</span>';
-    if(x.present){const fr=farol(x.row,EPof(x.row));farolCell=`<span class="pill ${fr.verd==='VERDE'?'g':fr.verd==='AMARELO'?'y':'r'}">${fr.verd}</span>`;}
-    h+=`<tr onclick="openDetail('${x.id}')"><td onclick="event.stopPropagation();toggleFin('${x.id}')" style="cursor:pointer">⭐</td><td>${status}</td><td>${d.cidade||'—'}</td><td>${d.tipo||'—'}</td><td>${d.bairro||'—'}</td><td class="rt">${precoCell}</td><td class="rt">${d.desc!=null?(+d.desc).toFixed(1):'—'}%</td><td>${d.modal||'—'}</td><td>${prazoCell}</td><td>${farolCell}</td><td>🔍</td></tr>`;
+    let farolCell='<span class="muted">—</span>',lanceCell='<span class="muted">—</span>';
+    if(x.present){const dec=decisao(x.row,EPof(x.row)),fr=dec.fr;farolCell=`<span class="pill ${fr.verd==='VERDE'?'g':fr.verd==='AMARELO'?'y':'r'}">${fr.verd}</span>`;lanceCell=`<span class="${dec.folga<0?'neg':''}">${fmt(dec.lance)}</span>${dec.folga<0?' ⛔':''}`;}
+    h+=`<tr onclick="openDetail('${x.id}')"><td onclick="event.stopPropagation();toggleFin('${x.id}')" style="cursor:pointer">⭐</td><td>${status}</td><td>${d.cidade||'—'}</td><td>${d.tipo||'—'}</td><td>${d.bairro||'—'}</td><td class="rt">${precoCell}</td><td class="rt">${d.desc!=null?(+d.desc).toFixed(1):'—'}%</td><td>${d.modal||'—'}</td><td>${prazoCell}</td><td class="rt">${lanceCell}</td><td>${farolCell}</td><td>🔍</td></tr>`;
   });
   h+='</tbody></table>';tableWrap.innerHTML=h;finbar.style.display='flex';finCount.textContent=items.length;
 }
@@ -206,9 +214,42 @@ function parseCSV(text){
   return {rows:out.filter(r=>r.preco!=null&&r.aval),dataGer:dg};
 }
 
-function P(){return{vendaPct:(+pVendaPct.value||100)/100,juros:+pJuros.value/100,entrada:+pEntrada.value/100,itbi:+pItbi.value/100,corretor:+pCorretor.value/100,imposto:+pImposto.value/100,prazo:+pPrazo.value,registro:+pRegistro.value,reforma:+pReforma.value,cond:+pCond.value,iptu:+pIptu.value,desoc:+pDesoc.value,prazoVenda:+pPrazoVenda.value};}
+function P(){return{vendaPct:(+pVendaPct.value||100)/100,juros:+pJuros.value/100,entrada:+pEntrada.value/100,itbi:+pItbi.value/100,corretor:+pCorretor.value/100,imposto:+pImposto.value/100,prazo:+pPrazo.value,registro:+pRegistro.value,reforma:+pReforma.value,cond:+pCond.value,iptu:+pIptu.value,desoc:+pDesoc.value,prazoVenda:+pPrazoVenda.value,tma:(+pTMA.value||12)/100};}
 function tipoParams(tipo,p){const t=(tipo||'').toLowerCase();const terreno=t.includes('terreno')||t.includes('lote'),casa=t.includes('casa');return{terreno,casa,cond:(terreno||casa)?0:p.cond,reforma:terreno?0:p.reforma,desoc:terreno?0:p.desoc,temCond:!(terreno||casa)};}
 function venda(r,p){return p.vendaAbs!=null?p.vendaAbs:r.aval*(p.vendaPct||1);}
+// ---- lance máximo recomendado (modelo profissional) ----
+function lanceMax(r,p){
+  const c=calc(r,p);
+  const vv=c.vv, receitaLiq=c.vrv;                 // venda considerada e receita líquida (após corretor)
+  const carrego=c.carregoMes*(p.prazoVenda||0);
+  const invAtual=c.investAvista;                   // base p/ imposto e capital em risco
+  const imposto=Math.max(0,(receitaLiq-invAtual)*p.imposto);
+  const tma=(p.tma!=null?p.tma:0.12), prazoTot=p.prazoVenda||1;
+  const lucroMin=invAtual*(Math.pow(1+tma,prazoTot/12)-1)+0.15*vv;   // lucro mínimo desejado
+  const outros=p.registro+c.tp.reforma+p.desoc+carrego;             // registro+reforma+honorários/conting+carrego
+  const lance=(receitaLiq-outros-imposto-lucroMin)/(1+c.leilo+p.itbi);
+  const PR=(p.preco!=null?p.preco:r.preco);
+  return {lance,folga:lance-PR,lucroMin,imposto,carrego,receitaLiq,vv,tma};
+}
+function decisao(r,p){
+  const lm=lanceMax(r,p), fr=farol(r,p), PR=(p.preco!=null?p.preco:r.preco);
+  const ck=checklist(r,p);
+  const bloqueios=ck.filter(c=>(c.bloqueia!=null?c.bloqueia:(c.crit==='Crítico'))&&(c.status==='Pendente'||c.status==='Problema')).length;
+  const acimaTeto=PR>lm.lance;
+  const liberado=(bloqueios===0)&&!acimaTeto&&!fr.elim;
+  const motivos=[];
+  if(fr.elim)motivos.push('condição eliminatória no farol');
+  if(bloqueios>0)motivos.push(bloqueios+' item(ns) crítico(s) que bloqueiam o lance em aberto');
+  if(acimaTeto)motivos.push('arrematação (R$ '+fmt(PR)+') acima do lance máximo (R$ '+fmt(lm.lance)+')');
+  return {liberado,bloqueios,acimaTeto,lance:lm.lance,folga:lm.folga,motivos,fr,lm};
+}
+function decBanner(r,p){
+  const d=decisao(r,p), bg=d.liberado?COLORS.VERDE:COLORS.VERMELHO, fg=d.liberado?'#06381f':'#fff';
+  const txt=d.liberado?`✅ LIBERADO PARA ANÁLISE — Lance máximo <b>R$ ${fmt(d.lance)}</b> · folga R$ ${fmt(d.folga)}`
+                      :`⛔ NÃO DAR LANCE — ${d.motivos.join(' · ')}`;
+  const sub=`Lance máx. = teto de arrematação que ainda preserva seu lucro mínimo à TMA de ${(d.lm.tma*100).toFixed(0)}% a.a.${d.liberado?'':' · Lance máx. calculado: R$ '+fmt(d.lance)}`;
+  return `<div style="background:${bg};color:${fg};border-radius:10px;padding:10px 14px;margin:8px 0;font-weight:700;font-size:13.5px">${txt}<div style="font-weight:500;font-size:11px;margin-top:3px;opacity:.92">${sub}</div></div>`;
+}
 
 // ---- núcleo de cálculo ----
 function comLeiloeiroRate(r,p){return p.leiloeiro!=null?p.leiloeiro:(/DIRETA/i.test(r.modal)?0:0.05);}
@@ -251,9 +292,29 @@ function farol(r,p){const f=farolDefaults(r,p);const PR=p.preco!=null?p.preco:r.
   return {score:s,verd,elim,inc,critN,critList:critPend.map(c=>c.item),f};}
 const OCC=["Desocupado","Ocupado (ex-proprietário)","Ocupado (inquilino)","Invadido"],ONUS=["Matrícula limpa","Ônus quitável","Ônus grave"],RISCO=["Baixo","Médio","Alto"],CONS=["Ótimo","Bom","Precisa reforma","Ruína"],LIQ=["Alta","Média","Baixa"];
 
-function checklist(r,p){const tp=tipoParams(r.tipo,p);const fin=r.fin==='Sim',direta=/Direta/.test(r.modal);const av=`R$ ${fmt(r.aval)}`,d=(100*(1-r.preco/r.aval)).toFixed(1);
-  const base=[["1. Edital","Ler integralmente o edital","Crítico","Pendente","Baixar 'Regras da Venda' e a matrícula e ler antes de propor."],["1. Edital","Tipo: judicial ou extrajudicial","Importante","OK","Extrajudicial: imóvel retomado da Caixa."],["1. Edital","Praça e preço mínimo","Importante","OK",direta?"Compra Direta: preço fixo.":"Venda Online: valor mínimo é o preço-base."],["1. Edital","Comissão do leiloeiro","Importante","OK",/DIRETA/i.test(r.modal)?"Venda/Compra Direta: sem comissão de leiloeiro.":"Modalidade com leiloeiro: 5% sobre a proposta, POR CIMA do lance. Confirmar no edital."],["1. Edital","Forma e prazo de pagamento","Crítico","OK","Modalidade: "+r.modal+"."],["1. Edital","Aceita financiamento?","Importante","OK",fin?"Aceita SBPE/FGTS (confirmar).":"Não financia (recursos próprios/FGTS)."],["1. Edital","Cláusula 'no estado' e débitos","Crítico","OK","Comprador assume condomínio/IPTU até 10% da avaliação; acima, Caixa quita."],["1. Edital","Regras de desistência/multa","Importante","Pendente","Confirmar no edital."],["2. Matrícula","Certidão de matrícula atualizada","Crítico","Pendente","Baixar matrícula; obter certidão. (Claude pode ler)"],["2. Matrícula","Proprietário e cadeia dominial","Importante","OK","Proprietário atual: CAIXA (consolidado)."],["2. Matrícula","Ônus: hipoteca/penhora/indisponib.","Crítico","Pendente","Conferir na matrícula. (Claude pode ler)"],["2. Matrícula","Averbação da construção","Importante","Pendente","Confirmar na matrícula."],["2. Matrícula","Certidões de ações reais","Importante","Pendente","Solicitar no cartório."],["3. Jurídico","Certidões do executado","Desejável","N/A","Não se aplica (extrajudicial)."],["3. Jurídico","Processo e fase","Crítico","N/A","Não há processo judicial."],["3. Jurídico","Intimação do executado","Crítico","N/A","Não se aplica (extrajudicial)."],["3. Jurídico","Recursos/embargos/anulatórias","Crítico","N/A","Não se aplica (extrajudicial)."],["3. Jurídico","Direito de preferência","Importante","Pendente","Verificar locatário com preferência."],["3. Jurídico","Débitos tributários que seguem","Importante","OK","IPTU: comprador até 10% da avaliação."],["4. Ocupação","Ocupado ou desocupado?","Crítico","Pendente","Confirmar no edital/visita."],["4. Ocupação","Quem ocupa","Crítico","Pendente","Ex-proprietário, inquilino ou invasor?"],["4. Ocupação","Custo/prazo de desocupação","Importante","Pendente","Se ocupado, prever imissão (buffer R$5.000)."],["4. Ocupação","Risco de resistência","Importante","Pendente","Avaliar em visita."],["5. Débitos","IPTU em atraso","Importante","Pendente","Consultar prefeitura. Até 10% da avaliação."],["5. Débitos","Condomínio em atraso","Crítico",tp.temCond?"Pendente":"N/A",tp.temCond?"Consultar administradora. Até 10% da avaliação.":"Não se aplica (casa/terreno)."],["5. Débitos","Água/luz/gás","Desejável","Pendente","Consultar concessionárias."],["5. Débitos","Quem assume cada débito","Crítico","OK","Comprador até 10% da avaliação; excedente pela Caixa."],["6. Mercado","Valor de mercado real","Crítico","Pendente","Avaliação Caixa = "+av+". Confirmar comparáveis de "+r.bairro+"."],["6. Mercado","Conservação e reforma","Importante","Pendente",tp.terreno?"Terreno: sem reforma.":"Reforma assumida R$"+fmt(p.reforma)+"."],["6. Mercado","Localização e liquidez","Importante","OK",tp.terreno?"Terreno: liquidez menor.":r.bairro+": confirmar liquidez."],["6. Mercado","Metragem real x matrícula","Desejável","OK",r.area?("Área privativa "+r.area+" m²."):"Confirmar na matrícula."],["7. Viabilidade","Somar custo total","Crítico","OK","Calculado neste painel."],["7. Viabilidade","Margem de segurança (desconto)","Crítico","OK","Desconto de "+d+"% sobre a avaliação."],["7. Viabilidade","Simular lucro/ROI/prazo","Importante","OK","Simulado (À Vista/PRICE/SAC)."],["7. Viabilidade","Capital ou financiamento + reserva","Crítico","Pendente",fin?"Financiável — pré-aprovação.":"Recursos próprios — garantir capital + reserva."]];
-  const st=CKST[r.id]||{};return base.map((b,i)=>({cat:b[0],item:b[1],crit:b[2],status:(st[i]&&st[i].status)||b[3],obs:(st[i]&&st[i].obs)||b[4]}));}
+function checklist(r,p){const tp=tipoParams(r.tipo,p);const fin=r.fin==='Sim';const av=`R$ ${fmt(r.aval)}`;
+  // 18 itens da aba "Diligência" do modelo profissional. [cat, verificação, criticidade, bloqueiaLance, statusPadrão, impacto/obs]
+  const base=[
+   ["Edital","Ler integralmente o edital e anexos","Crítico",true,"Pendente","Venda AS-IS; conferir forma e prazo de pagamento ("+r.modal+")."],
+   ["Edital","Confirmar desistência, multa e perda de valores","Crítico",true,"Pendente","Regras de arrependimento no edital."],
+   ["Matrícula","Obter matrícula atualizada (menos de 30 dias)","Crítico",true,"Pendente","Base para checar ônus. (Claude pode ler)"],
+   ["Matrícula","Validar penhora/ônus e procedimento de baixa","Crítico",true,"Pendente","Hipoteca, penhora, indisponibilidade. (Claude pode ler)"],
+   ["Matrícula","Verificar restrições (MCMV ou outras)","Importante",false,"Pendente","Cláusulas de inalienabilidade/uso."],
+   ["Certidões","Ações reais / reipersecutórias","Importante",false,"Pendente","Solicitar no cartório distribuidor."],
+   ["Ocupação","Confirmar se está ocupado","Crítico",true,"Pendente","Edital / visita."],
+   ["Ocupação","Identificar ocupante e vínculo","Crítico",true,"Pendente","Ex-proprietário, inquilino ou invasor?"],
+   ["Ocupação","Estimar prazo e custo da posse","Importante",false,"Pendente","Reserva para imissão na posse."],
+   ["Débitos","Obter saldo atualizado do condomínio","Crítico",true,tp.temCond?"Pendente":"N/A",tp.temCond?"Administradora. Comprador até o limite do edital.":"Não se aplica (casa/terreno)."],
+   ["Débitos","Obter certidão de IPTU","Crítico",true,"Pendente","Prefeitura. Comprador até o limite do edital."],
+   ["Débitos","Confirmar responsabilidade por cada débito","Crítico",true,"Pendente","Edital define o limite coberto pela Caixa."],
+   ["Físico","Realizar visita ou inspeção técnica","Crítico",true,"Pendente","Conservação e estado real do imóvel."],
+   ["Físico","Orçar reforma em três cenários","Importante",false,"Pendente",tp.terreno?"Terreno: sem reforma.":"Leve / Médio / Pesado."],
+   ["Mercado","Validar preço com pelo menos 5 comparáveis","Crítico",true,"Pendente","Avaliação Caixa = "+av+". Confirmar comparáveis em "+r.bairro+"."],
+   ["Mercado","Validar liquidez e prazo médio de venda","Importante",false,"Pendente",tp.terreno?"Terreno: liquidez menor.":r.bairro+": confirmar liquidez."],
+   ["Financeiro","Garantir capital e reserva de contingência","Crítico",true,"Pendente",fin?"Financiável — obter pré-aprovação.":"Recursos próprios — garantir capital + reserva."],
+   ["Tributário","Validar tributação com contador","Importante",false,"Pendente","Imposto sobre ganho de capital na revenda."]
+  ];
+  const st=CKST[r.id]||{};return base.map((b,i)=>{const o=st[i]||{};return {i,cat:b[0],item:b[1],crit:b[2],bloqueia:b[3],status:o.status||b[4],obs:o.obs!=null?o.obs:b[5],evid:o.evid||'',resp:o.resp||'',data:o.data||''};});}
 
 // ---------- SVG charts ----------
 function chart(cats,series,{type='bar',h=230,fmtY=fmt,title=''}={}){
@@ -292,14 +353,14 @@ function fillBairros(){
 }
 function applyFilters(){if(!RAW.length)return;const cid=fCidade.value,bai=fBairro.value,vmax=+fValor.value||Infinity;const tps=[...document.querySelectorAll('.tp:checked')].map(x=>x.value);FILTERED=RAW.filter(r=>(!cid||r.cidadeN===cid)&&(!bai||normCity(r.bairro)===bai)&&r.preco<=vmax&&tps.includes(r.tipo));render();}
 function recalc(){render();if(modalbg.style.display==='flex')drawModal();if(typeof cloudSave==='function')cloudSave();}
-function render(){const p=P();FILTERED.forEach(r=>{const a=avistaSeries(r,p).slice(-1)[0];r._luc=a.ll;r._roi=calc(r,p).investAvista?a.ll/calc(r,p).investAvista:0;r._far=farol(r,p);});FILTERED.sort((x,y)=>SORT.dir*((x[SORT.k]??-1e18)>(y[SORT.k]??-1e18)?1:-1));
+function render(){const p=P();FILTERED.forEach(r=>{const a=avistaSeries(r,p).slice(-1)[0];r._luc=a.ll;r._roi=calc(r,p).investAvista?a.ll/calc(r,p).investAvista:0;r._far=farol(r,p);r._lance=lanceMax(r,p).lance;});FILTERED.sort((x,y)=>SORT.dir*((x[SORT.k]??-1e18)>(y[SORT.k]??-1e18)?1:-1));
   updateFavTab();if(VIEW==='fav'){renderFavorites(p);return;}
   const n=FILTERED.length,avgD=n?FILTERED.reduce((s,r)=>s+r.desc,0)/n:0,best=n?Math.max(...FILTERED.map(r=>r.desc)):0,fin=Object.keys(FIN).filter(k=>FIN[k]).length;
   stats.innerHTML=[['Imóveis',n],['Desconto médio',avgD.toFixed(1)+'%'],['Maior desconto',best.toFixed(1)+'%'],['Favoritos',fin]].map(s=>`<div class="stat">${s[0]}<b>${s[1]}</b></div>`).join('');
   if(!n){tableWrap.innerHTML='<div class="empty">Nenhum imóvel no filtro.</div>';finbar.style.display='none';return;}
-  const cols=[['#',''],['cidade','Cidade'],['tipo','Tipo'],['bairro','Bairro'],['preco','Preço'],['aval','Avaliação'],['desc','Desc.%'],['_luc','Lucro Líq.'],['_roi','ROI'],['modal','Modalidade'],['fin','Fin.'],['_far','Farol'],['sel','★']];
+  const cols=[['#',''],['cidade','Cidade'],['tipo','Tipo'],['bairro','Bairro'],['preco','Preço'],['aval','Avaliação'],['desc','Desc.%'],['_luc','Lucro Líq.'],['_roi','ROI'],['_lance','Lance máx.'],['modal','Modalidade'],['fin','Fin.'],['_far','Farol'],['sel','★']];
   let h='<table class="mono"><thead><tr>'+cols.map(c=>`<th onclick="sortBy('${c[0]}')">${c[1]}</th>`).join('')+'</tr></thead><tbody>';
-  FILTERED.forEach((r,i)=>{const fc=r._far.verd;h+=`<tr onclick="openDetail('${r.id}')"><td>${i+1}${POV[r.id]?' ⚙':''}</td><td>${r.cidade}</td><td>${r.tipo}</td><td>${r.bairro}</td><td class="rt">${fmt(r.preco)}</td><td class="rt">${fmt(r.aval)}</td><td class="rt"><span class="pill ${r.desc>=45?'g':r.desc>=40?'y':''}">${r.desc.toFixed(1)}%</span></td><td class="rt ${r._luc<0?'neg':''}">${fmt(r._luc)}</td><td class="rt">${pct(r._roi)}</td><td>${r.modal}</td><td>${r.fin==='Sim'?'<span class="pill g">Sim</span>':'Não'}</td><td><span class="pill ${fc==='VERDE'?'g':fc==='AMARELO'?'y':'r'}">${fc}</span></td><td onclick="event.stopPropagation();toggleFin('${r.id}')">${FIN[r.id]?'⭐':'☆'}</td></tr>`;});
+  FILTERED.forEach((r,i)=>{const fc=r._far.verd,acima=r.preco>r._lance;h+=`<tr onclick="openDetail('${r.id}')"><td>${i+1}${POV[r.id]?' ⚙':''}</td><td>${r.cidade}</td><td>${r.tipo}</td><td>${r.bairro}</td><td class="rt">${fmt(r.preco)}</td><td class="rt">${fmt(r.aval)}</td><td class="rt"><span class="pill ${r.desc>=45?'g':r.desc>=40?'y':''}">${r.desc.toFixed(1)}%</span></td><td class="rt ${r._luc<0?'neg':''}">${fmt(r._luc)}</td><td class="rt">${pct(r._roi)}</td><td class="rt ${acima?'neg':''}" title="${acima?'arrematação acima do teto':'dentro do teto'}">${fmt(r._lance)}${acima?' ⛔':''}</td><td>${r.modal}</td><td>${r.fin==='Sim'?'<span class="pill g">Sim</span>':'Não'}</td><td><span class="pill ${fc==='VERDE'?'g':fc==='AMARELO'?'y':'r'}">${fc}</span></td><td onclick="event.stopPropagation();toggleFin('${r.id}')">${FIN[r.id]?'⭐':'☆'}</td></tr>`;});
   h+='</tbody></table>';tableWrap.innerHTML=h;const c=Object.keys(FIN).filter(k=>FIN[k]).length;finbar.style.display=c?'flex':'none';finCount.textContent=c;}
 function sortBy(k){if(k==='sel'||k==='#')return;SORT.dir=SORT.k===k?-SORT.dir:-1;SORT.k=k;render();}
 function toggleFin(id){FIN[id]=!FIN[id];if(FIN[id]){const row=RAW.find(r=>r.id===id);if(row){const snap=snapFromRow(row,window._dg||'');snap.prevPreco=null;snap.firstDg=window._dg||'';snap.prazo=(FAVMETA[id]&&FAVMETA[id].prazo)||'';FAVMETA[id]=snap;}}else{delete FAVMETA[id];}saveLS('fav_meta',FAVMETA);saveLS('fin_sel',FIN);render();}
@@ -320,6 +381,7 @@ function drawModal(){
   <div class="muted">${r.endereco} · <a href="${r.link}" target="_blank">ver na Caixa ↗</a> · matrícula: <a href="https://venda-imoveis.caixa.gov.br/editais/matricula/${r.uf}/${r.id}.pdf" target="_blank">PDF ↗</a></div>
   ${r._absent?`<div class="pill r" style="display:inline-block;margin:6px 0">⚠ Fora da lista atual — dados de ${(FAVMETA[r.id]&&FAVMETA[r.id].lastDg)||'?'}. Pode ter sido vendido/leiloado.</div>`:''}
   ${isOnlineSale(r.modal)?`<div class="muted" style="margin:6px 0">⏳ Prazo do leilão: <input type="date" value="${(FAVMETA[r.id]&&FAVMETA[r.id].prazo)||''}" onchange="setPrazo('${r.id}',this.value)">${prazoStatus((FAVMETA[r.id]||{}).prazo)}${FIN[r.id]?'':' <span class="muted">— favorite ★ para acompanhar o prazo</span>'}</div>`:''}
+  <div id="decWrap">${decBanner(r,p)}</div>
   ${premEditor(r,p)}
   <div class="tabs">${TABS.map(t=>`<button class="${CURTAB===t[0]?'on':''}" onclick="setTab('${t[0]}')">${t[1]}</button>`).join('')}</div>`;
   b+=({resumo:tabResumo,calc:tabCalc,avista:tabAvista,price:()=>tabFin('PRICE'),sac:()=>tabFin('SAC'),result:tabResult,ck:tabCk})[CURTAB]();
@@ -368,20 +430,30 @@ function tabResult(){const r=window._cur,p=EP();const cats=[];for(let m=1;m<=p.p
   const catsL=[];const dataL=[];const c=calc(r,p);for(let m=1;m<=24;m++){catsL.push(m);const tot=c.investAvista+c.carregoMes*m;const lt=c.vrv-tot;const imp=lt>0?p.imposto*lt:0;dataL.push(lt-imp);}
   const c4=chart(catsL,[{name:'Lucro líq. À Vista',color:'#2ecc71',data:dataL}],{type:'line',title:'Lucro líquido × prazo de venda (meses)',fmtY:v=>fmt(v/1000)+'k'});
   return `<div class="grid2"><div class="card">${c1}</div><div class="card">${c2}</div><div class="card">${c3}</div><div class="card">${c4}</div></div>`;}
-function ckSummaryText(r,p){const ck=checklist(r,p);const st={};ck.forEach(c=>st[c.status]=(st[c.status]||0)+1);const fr=farol(r,p);return 'OK '+(st.OK||0)+' · Pendente '+(st.Pendente||0)+' · Problema '+(st.Problema||0)+' · N/A '+(st['N/A']||0)+' — críticos em aberto: '+fr.critN;}
+function ckStats(r,p){const ck=checklist(r,p);const critPend=ck.filter(c=>c.crit==='Crítico'&&c.status==='Pendente').length;const critProb=ck.filter(c=>c.crit==='Crítico'&&c.status==='Problema').length;const bloq=ck.filter(c=>c.bloqueia&&(c.status==='Pendente'||c.status==='Problema')).length;return {critPend,critProb,bloq,concl:bloq===0};}
+function ckSummaryText(r,p){const s=ckStats(r,p);return `Bloqueios ativos: ${s.bloq} · Críticos pendentes: ${s.critPend} · Críticos com problema: ${s.critProb} — Diligência: ${s.concl?'✅ concluída (liberada p/ análise)':'❌ pendente (não dar lance)'}`;}
+function esc(s){return (''+(s||'')).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function tabCk(){const r=window._cur,p=EP();const ck=checklist(r,p);
   let b='<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px">'
     +`<span class="muted" id="ckSummary">${ckSummaryText(r,p)}</span>`
     +`<button class="ghost" style="padding:5px 10px;font-size:12px;white-space:nowrap" onclick="resetCk('${r.id}')">↺ Restaurar checklist</button></div>`;
+  b+='<div class="muted" style="margin-bottom:6px">🔒 = item que <b>bloqueia o lance</b> enquanto não estiver OK ou N/A.</div>';
   let cat='';
-  ck.forEach((c,i)=>{if(c.cat!==cat){cat=c.cat;b+=`<h4 style="margin-top:12px">${cat}</h4>`;}b+=`<div class="ck"><select onchange="setCk('${r.id}',${i},this.value)">${['OK','Pendente','Problema','N/A'].map(s=>`<option ${s===c.status?'selected':''}>${s}</option>`).join('')}</select><div class="it"><span class="crit c-${c.crit}">${c.crit}</span> ${c.item}<div class="muted">${c.obs}</div></div></div>`;});
+  ck.forEach((c)=>{const i=c.i;if(c.cat!==cat){cat=c.cat;b+=`<h4 style="margin-top:12px">${cat}</h4>`;}
+    b+=`<div class="ckrow"><div class="ckhead"><span class="crit c-${c.crit}">${c.crit}</span>${c.bloqueia?' <span class="crit c-Crítico" title="Bloqueia o lance se não estiver OK/N/A">🔒 bloqueia</span>':''} <b>${esc(c.item)}</b><div class="muted">${esc(c.obs)}</div></div>
+      <div class="ckfields">
+        <select onchange="setCkField('${r.id}',${i},'status',this.value)">${['OK','Pendente','Problema','N/A'].map(s=>`<option ${s===c.status?'selected':''}>${s}</option>`).join('')}</select>
+        <input placeholder="Evidência / fonte" value="${esc(c.evid)}" onchange="setCkField('${r.id}',${i},'evid',this.value)">
+        <input placeholder="Responsável" value="${esc(c.resp)}" onchange="setCkField('${r.id}',${i},'resp',this.value)">
+        <input type="date" value="${esc(c.data)}" onchange="setCkField('${r.id}',${i},'data',this.value)">
+      </div></div>`;});
   return b+'</div>';}
 function resetCk(id){if(!confirm('Restaurar o checklist deste imóvel para o padrão do carregamento? As marcações e observações que você alterou neste imóvel serão perdidas.'))return;delete CKST[id];saveLS('ck_state',CKST);render();drawModal();}
-function refreshCkLive(){const r=window._cur;if(!r)return;const p=EP();const fr=farol(r,p);const pill=document.getElementById('farolPill');if(pill){pill.className='pill '+(fr.verd==='VERDE'?'g':fr.verd==='AMARELO'?'y':'r');pill.textContent=fr.verd+' · '+fr.score;}const sum=document.getElementById('ckSummary');if(sum)sum.textContent=ckSummaryText(r,p);}
+function refreshCkLive(){const r=window._cur;if(!r)return;const p=EP();const fr=farol(r,p);const pill=document.getElementById('farolPill');if(pill){pill.className='pill '+(fr.verd==='VERDE'?'g':fr.verd==='AMARELO'?'y':'r');pill.textContent=fr.verd+' · '+fr.score;}const sum=document.getElementById('ckSummary');if(sum)sum.textContent=ckSummaryText(r,p);const dw=document.getElementById('decWrap');if(dw)dw.innerHTML=decBanner(r,p);}
 function kv(k,v){return `<div class="kv"><span>${k}</span><b>${v}</b></div>`;}
 function farSel(r,key,label,opts){const f=farolDefaults(r,EP());return `<label style="margin-top:6px">${label}</label><select onchange="setFar('${r.id}','${key}',this.value)">${opts.map(o=>`<option ${o===f[key]?'selected':''}>${o}</option>`).join('')}</select>`;}
 function setFar(id,k,v){FAR[id]=Object.assign(farolDefaults(RAW.find(r=>r.id===id),EP()),{[k]:v});saveLS('far_state',FAR);drawModal();render();}
-function setCk(id,i,v){CKST[id]=CKST[id]||{};CKST[id][i]=CKST[id][i]||{};CKST[id][i].status=v;saveLS('ck_state',CKST);render();refreshCkLive();}
+function setCkField(id,i,field,v){CKST[id]=CKST[id]||{};CKST[id][i]=CKST[id][i]||{};CKST[id][i][field]=v;saveLS('ck_state',CKST);render();refreshCkLive();}
 function premEditor(r,p){
   const ov=POV[r.id]||{},has=Object.keys(ov).length;
   const F=(lbl,field,val,step)=>`<div><label style="margin:0 0 2px">${lbl}${ov[field]!=null?' •':''}</label><input type="number" step="${step||'any'}" value="${val}" onchange="setPov('${field}',this.value)"></div>`;
@@ -411,10 +483,63 @@ function resetPov(){const r=window._cur;delete POV[r.id];saveLS('prem_over',POV)
 
 function exportFinalists(){const ids=Object.keys(FIN).filter(k=>FIN[k]);const rows=RAW.filter(r=>ids.includes(r.id));if(!rows.length){alert('Selecione finalistas com a ★.');return;}let t='FINALISTAS PARA LEITURA DE MATRÍCULA (Claude):\n\n';rows.forEach((r,i)=>{t+=`${i+1}. ${r.tipo} — ${r.bairro}, ${r.cidade}\n   ${r.endereco}\n   Detalhe: ${r.link}\n   Matrícula: https://venda-imoveis.caixa.gov.br/editais/matricula/${r.uf}/${r.id}.pdf\n\n`;});t+='Peça: "leia as matrículas e atualize o checklist (ônus, consolidação, restrições) — sem transcrever dados pessoais".';navigator.clipboard.writeText(t).then(()=>alert('Copiado! Cole na conversa com o Claude.')).catch(()=>{const w=window.open('','_blank');w.document.write('<pre>'+t.replace(/</g,'&lt;')+'</pre>');});}
 
+// ---- export: preenche o modelo profissional (.xlsx) por finalista ----
+function baixarBlob(blob,nome){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=nome;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},1500);}
+function setCell(ws,addr,val){if(ws)ws.getCell(addr).value=val;}
+function fillModelo(wb,r,p){
+  const c=calc(r,p);
+  const ent=wb.getWorksheet('Entradas');
+  setCell(ent,'B5',(r.tipo||'')+' - '+(r.bairro||'')+', '+(r.cidade||''));
+  setCell(ent,'B6',r.endereco||'');
+  setCell(ent,'B7',r.modal||'');
+  if(r.area!=null)setCell(ent,'B8',r.area);
+  setCell(ent,'D8','Área privativa da lista Caixa (confirmar na matrícula)');
+  setCell(ent,'B10','Base');
+  setCell(ent,'B14',(p.preco!=null?p.preco:r.preco));
+  setCell(ent,'D14','Lista Caixa '+(window._dg||''));
+  setCell(ent,'B15',c.leilo); setCell(ent,'B16',p.itbi); setCell(ent,'B17',p.registro);
+  setCell(ent,'B18',p.desoc); setCell(ent,'B20',p.cond); setCell(ent,'B21',p.iptu);
+  setCell(ent,'B25',p.prazoVenda); setCell(ent,'B26',p.corretor); setCell(ent,'B28',p.imposto); setCell(ent,'B29',p.tma);
+  // valor de mercado (cenário Base) = venda considerada do app
+  setCell(wb.getWorksheet('Cenarios'),'C4',c.vv);
+  // diligência (18 itens -> linhas 4..21)
+  const dil=wb.getWorksheet('Diligencia'), ck=checklist(r,p);
+  ck.forEach((it,i)=>{const row=4+i;
+    setCell(dil,'B'+row,it.cat); setCell(dil,'C'+row,it.item); setCell(dil,'D'+row,it.crit);
+    setCell(dil,'E'+row,it.status); setCell(dil,'F'+row,it.bloqueia?'Sim':'Não');
+    setCell(dil,'G'+row,it.resp||''); if(it.data)setCell(dil,'H'+row,it.data);
+    setCell(dil,'I'+row,it.evid||''); setCell(dil,'J'+row,it.obs||'');
+  });
+}
+async function exportModelo(){
+  if(typeof ExcelJS==='undefined'){alert('A biblioteca de planilha ainda está carregando. Tente novamente em alguns segundos.');return;}
+  const ids=Object.keys(FIN).filter(k=>FIN[k]);
+  const present=ids.map(id=>RAW.find(r=>r.id===id)).filter(Boolean);
+  const absent=ids.length-present.length;
+  if(!present.length){alert('Nenhum finalista na lista atual para exportar.'+(absent?' Carregue o CSV que contenha seus favoritos.':' Marque imóveis com ★.'));return;}
+  let buf;
+  try{const resp=await fetch('assets/modelo.xlsx');if(!resp.ok)throw 0;buf=await resp.arrayBuffer();}
+  catch(e){alert('Não consegui carregar a planilha-modelo (assets/modelo.xlsx).');return;}
+  let ok=0;
+  for(const r of present){
+    try{
+      const wb=new ExcelJS.Workbook();
+      await wb.xlsx.load(buf.slice(0));
+      fillModelo(wb,r,EPof(r));
+      const out=await wb.xlsx.writeBuffer();
+      const nome=('Analise_'+(r.cidade||'')+'_'+(r.bairro||'')+'_'+r.id).normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^\w\-]+/g,'_').slice(0,80)+'.xlsx';
+      baixarBlob(new Blob([out],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),nome);
+      ok++;
+      await new Promise(res=>setTimeout(res,500));
+    }catch(e){console.error('export falhou para '+r.id,e);}
+  }
+  alert('Exportado(s) '+ok+' de '+present.length+' finalista(s).'+(absent?(' '+absent+' favorito(s) fora da lista atual não foram exportados.'):'')+(ok<present.length?' (alguns falharam — veja o console)':''));
+}
+
 // ============ Camada nuvem + login (Supabase) ============
 // Se config.js não definir SUPABASE_URL/ANON_KEY, o app roda 100% local (localStorage), sem erros.
 let SB=null, USER=null, HYDRATING=false, _saveTimer=null, _loaded=false;
-const GLOBAL_INPUTS=['pVendaPct','pPrazoVenda','pJuros','pEntrada','pItbi','pCorretor','pImposto','pPrazo','pRegistro','pReforma','pCond','pIptu','pDesoc','fValor','fCidade'];
+const GLOBAL_INPUTS=['pVendaPct','pPrazoVenda','pJuros','pEntrada','pItbi','pCorretor','pImposto','pPrazo','pRegistro','pReforma','pCond','pIptu','pDesoc','pTMA','fValor','fCidade'];
 
 function collectState(){
   const globals={};

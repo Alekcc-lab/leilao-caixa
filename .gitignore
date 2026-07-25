@@ -13,3 +13,6 @@ npm-debug.log*
 *.csv
 *.xlsx
 ~$*
+
+# Exceção: a planilha-modelo do export precisa ir para o repositório
+!assets/modelo.xlsx
