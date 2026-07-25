@@ -321,18 +321,26 @@ function schedule(r,p,sis){const c=calc(r,p),n=p.prazo;const amort=c.PV/n,PMT=c.
 function finSaleSeries(r,p,sis){const s=schedule(r,p,sis),c=s.c,out=[];for(let m=1;m<=p.prazoVenda;m++){const row=s.rows[m];const carr=c.carregoMes*m;const tot=c.desembInicial+row.pAcum+row.saldo+carr;const lt=c.vrv-tot;const imp=lt>0?p.imposto*lt:0;const ll=lt-imp;const capP=c.desembInicial+row.pAcum+carr;out.push({m,parcAcum:row.pAcum,saldo:row.saldo,parcela:row.parc,carr,tot,lt,imp,ll,roi:capP?ll/capP:0});}return {out,sched:s};}
 
 function farolDefaults(r,p){const tp=tipoParams(r.tipo,p);return FAR[r.id]||{oc:"Ocupado (ex-proprietário)",on:"Matrícula limpa",rj:"Baixo",cs:"Bom",lq:tp.terreno?"Baixa":"Média",deb:0,ed:"Não",ma:"Não",cap:"Sim"};}
-function farol(r,p){const f=farolDefaults(r,p);const PR=p.preco!=null?p.preco:r.preco;const desc=1-PR/r.aval;const roi=avistaSeries(r,p).slice(-1)[0].ll/calc(r,p).investAvista;let s=0;
-  s+=desc>=.35?25:desc>=.25?20:desc>=.15?12:desc>=.08?5:0;
-  s+=roi>=.30?20:roi>=.20?15:roi>=.12?8:roi>=.05?3:0;
-  s+=f.oc==="Desocupado"?15:f.oc==="Ocupado (ex-proprietário)"?8:f.oc==="Ocupado (inquilino)"?6:0;
-  s+=f.on==="Matrícula limpa"?12:f.on==="Ônus quitável"?6:0;
-  s+=f.rj==="Baixo"?10:f.rj==="Médio"?5:0;
-  s+=f.cs==="Ótimo"?8:f.cs==="Bom"?6:f.cs==="Precisa reforma"?3:0;
-  s+=f.lq==="Alta"?10:f.lq==="Média"?5:2;
-  const deb=+f.deb||0,pen=deb>0.1*PR?-15:deb>0.05*PR?-8:deb>0?-3:0;s=Math.max(0,s+pen);
-  const elim=f.on==="Ônus grave"||f.rj==="Alto"||f.cap==="Não"||desc<0;const inc=f.ed==="Não"||f.ma==="Não";
-  // itens CRÍTICOS do checklist ainda não resolvidos (Pendente/Problema) travam o verde
-  const ck=checklist(r,p);
+// Score 0-100 no espírito da planilha: metade objetivo (desconto/ROI/débitos/comparáveis,
+// vindos do checklist e das abas), metade julgamento seu (ocupação/conservação/liquidez).
+function farol(r,p){const f=farolDefaults(r,p);const PR=p.preco!=null?p.preco:r.preco;const desc=1-PR/r.aval;const roi=avistaSeries(r,p).slice(-1)[0].ll/calc(r,p).investAvista;
+  const ck=checklist(r,p),byKey={};ck.forEach(c=>byKey[c.chave]=c);
+  const stOf=k=>(byKey[k]||{}).status;
+  const onusSt=stOf('matricula_onus'), editalSt=stOf('edital_ler'), matSt=stOf('matricula_obter');
+  const compUsados=((COMP[r.id]||[]).filter(x=>x.usar&&(+x.preco)>0&&(+x.area)>0)).length;
+  const debB=debtBuyer(r);
+  let s=0;
+  s+=desc>=.35?20:desc>=.25?16:desc>=.15?10:desc>=.08?4:0;                       // desconto (20)
+  s+=roi>=.30?20:roi>=.20?15:roi>=.12?8:roi>=.05?3:0;                            // retorno (20)
+  s+=f.oc==="Desocupado"?15:f.oc==="Ocupado (ex-proprietário)"?8:f.oc==="Ocupado (inquilino)"?6:0;  // ocupação (15)
+  s+=onusSt==='OK'?15:onusSt==='Problema'?0:5;                                   // ônus, do checklist (15)
+  s+=f.cs==="Ótimo"?10:f.cs==="Bom"?8:f.cs==="Precisa reforma"?4:0;              // conservação (10)
+  s+=f.lq==="Alta"?10:f.lq==="Média"?6:2;                                        // liquidez (10)
+  s+=compUsados>=5?10:compUsados>=3?6:0;                                         // confiança de mercado (10)
+  if(debB!=null&&PR){const pen=debB>0.1*PR?-15:debB>0.05*PR?-8:debB>0?-3:0;s+=pen;}   // débitos assumidos
+  s=Math.max(0,Math.min(100,Math.round(s)));
+  const elim=onusSt==='Problema'||f.rj==="Alto"||f.cap==="Não"||desc<0;
+  const inc=!(editalSt==='OK')||!(matSt==='OK');                                  // edital/matrícula lidos? (do checklist)
   const critPend=ck.filter(c=>c.crit==='Crítico'&&(c.status==='Pendente'||c.status==='Problema'));
   const critN=critPend.length;
   let verd;
@@ -340,7 +348,7 @@ function farol(r,p){const f=farolDefaults(r,p);const PR=p.preco!=null?p.preco:r.
   else if(s<50) verd='VERMELHO';
   else if(inc||critN>0) verd='AMARELO';
   else verd=(s>=75?'VERDE':'AMARELO');
-  return {score:s,verd,elim,inc,critN,critList:critPend.map(c=>c.item),f};}
+  return {score:s,verd,elim,inc,critN,critList:critPend.map(c=>c.item),f,compUsados,debB,onusSt,editalSt,matSt};}
 const OCC=["Desocupado","Ocupado (ex-proprietário)","Ocupado (inquilino)","Invadido"],ONUS=["Matrícula limpa","Ônus quitável","Ônus grave"],RISCO=["Baixo","Médio","Alto"],CONS=["Ótimo","Bom","Precisa reforma","Ruína"],LIQ=["Alta","Média","Baixa"];
 
 function checklist(r,p){const tp=tipoParams(r.tipo,p);const fin=r.fin==='Sim';const av=`R$ ${fmt(r.aval)}`;
@@ -460,8 +468,16 @@ function tabResumo(){const r=window._cur,p=EP();const av=avistaSeries(r,p).slice
      <tr><td>Saldo ${p.prazoVenda}m</td><td class="rt">—</td><td class="rt">${fmt(pr.saldo)}</td><td class="rt">${fmt(sc.saldo)}</td></tr></table>
      <div class="muted" style="margin-top:6px">À Vista = capital próprio integral. Financiado: ROI sobre capital aportado (alavancagem).</div></div>
    <div class="card"><h4>Farol</h4><div class="farolbox" style="background:${COLORS[fr.verd]};color:${fr.verd==='AMARELO'?'#222':'#fff'}">${fr.verd}<div style="font-size:13px;font-weight:600">Pontuação ${fr.score}/100</div>${fr.verd==='VERDE'?'<div style="font-size:12px;font-weight:600">✓ pronto para arrematar</div>':''}</div>
-     <div class="muted" style="margin-top:6px">${fr.critN>0?('⚠ '+fr.critN+' item(ns) crítico(s) em aberto — o verde só libera quando resolvidos:<br>• '+fr.critList.join('<br>• ')):'✔ Nenhum item crítico pendente no checklist.'}</div>
-     <div>${farSel(r,'oc','Ocupação',OCC)}${farSel(r,'on','Ônus matrícula',ONUS)}${farSel(r,'rj','Risco jurídico',RISCO)}${farSel(r,'cs','Conservação',CONS)}${farSel(r,'lq','Liquidez',LIQ)}${farSel(r,'ed','Edital lido?',['Não','Sim'])}${farSel(r,'ma','Matrícula analisada?',['Não','Sim'])}${farSel(r,'cap','Capital garantido?',['Sim','Não'])}</div></div>
+     <div class="muted" style="margin-top:8px;font-size:11px;line-height:1.6">
+       <b style="color:var(--txt)">Puxado da diligência:</b><br>
+       ${fr.onusSt==='OK'?'✅':fr.onusSt==='Problema'?'⛔':'⏳'} Ônus/penhora — ${fr.onusSt||'—'}<br>
+       ${fr.editalSt==='OK'?'✅':'⏳'} Edital lido · ${fr.matSt==='OK'?'✅':'⏳'} Matrícula obtida<br>
+       ${fr.compUsados>=5?'✅':fr.compUsados>=3?'⚠':'⏳'} Comparáveis: ${fr.compUsados} ${fr.compUsados>=5?'(alta confiança)':fr.compUsados>=3?'(média)':'(mín. 5)'}
+       ${fr.debB?('<br>💰 Débitos assumidos: R$ '+fmt(fr.debB)):''}
+       ${fr.critN>0?('<br>⚠ '+fr.critN+' crítico(s) em aberto — ver aba Checklist'):''}
+     </div>
+     <div style="margin-top:10px"><div class="muted" style="font-size:11px;text-transform:uppercase;letter-spacing:.5px">Sua avaliação</div>
+     ${farSel(r,'oc','Ocupação',OCC)}${farSel(r,'cs','Conservação',CONS)}${farSel(r,'lq','Liquidez',LIQ)}${farSel(r,'rj','Risco jurídico',RISCO)}${farSel(r,'cap','Capital garantido?',['Sim','Não'])}</div></div>
   </div>${aiAchadosCard(r)}`;}
 function tabCalc(){const r=window._cur,p=EP(),c=calc(r,p);
   return `<div class="grid2"><div class="card"><h4>Custos de aquisição</h4>${kv('Comissão do leiloeiro ('+(c.leilo*100).toFixed(1)+'%)','R$ '+fmt(c.PR*c.leilo))}${kv('ITBI ('+(p.itbi*100)+'%)','R$ '+fmt(c.PR*p.itbi))}${kv('Registro','R$ '+fmt(p.registro))}${kv('Advogado/desocupação','R$ '+fmt(c.tp.desoc))}${kv('Reforma/outros','R$ '+fmt(c.tp.reforma))}${kv('Subtotal aquisição','R$ '+fmt(c.custosAq))}${kv('+ Arrematação','R$ '+fmt(r.preco))}${kv('= Investimento à vista','R$ '+fmt(c.investAvista))}</div>
