@@ -302,9 +302,20 @@ const COLORS={VERDE:'#2ecc71',AMARELO:'#f1c40f',VERMELHO:'#e74c3c'};
 
 // ---- favoritos: modalidade, prazo, snapshot, reconciliação e aba ----
 function isOnlineSale(modal){return !/direta/i.test(modal||'');}
-function fmtDate(s){if(!s)return '';const p=(''+s).split('-');return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:s;}
-function daysUntil(dstr){if(!dstr)return null;const d=new Date(dstr+'T23:59:59');if(isNaN(d))return null;return Math.ceil((d-new Date())/86400000);}
-function prazoStatus(dstr){if(!dstr)return ' <span class="pill r">⚠ sem prazo</span>';const du=daysUntil(dstr);if(du==null)return '';if(du<0)return ` <span class="pill r">⏰ vencido</span>`;if(du<=3)return ` <span class="pill y">⚠ ${du}d</span>`;return ` <span class="pill g">${du}d</span>`;}
+function parsePrazo(s){if(!s)return null;s=(''+s).trim();const d=s.includes('T')?new Date(s):new Date(s+'T23:59:59');return isNaN(d)?null:d;}
+function fmtDate(s){if(!s)return '';const m=(''+s).match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/);if(!m)return s;return m[3]+'/'+m[2]+'/'+m[1]+(m[4]?(' '+m[4]+'h'+m[5]):'');}
+function prazoInput(s){s=(''+(s||'')).trim();if(!s)return '';return s.includes('T')?s.slice(0,16):(s+'T23:59');}   // valores antigos (só data) viram 23:59
+function daysUntil(dstr){const d=parsePrazo(dstr);if(!d)return null;return Math.ceil((d-new Date())/86400000);}
+function hoursUntil(dstr){const d=parsePrazo(dstr);if(!d)return null;return (d-new Date())/3600000;}
+function prazoStatus(dstr){
+  if(!dstr)return ' <span class="pill r">⚠ sem prazo</span>';
+  const h=hoursUntil(dstr);if(h==null)return '';
+  if(h<0)return ' <span class="pill r">⏰ vencido</span>';
+  if(h<1)return ` <span class="pill r">⚠ ${Math.max(1,Math.round(h*60))} min!</span>`;
+  if(h<24)return ` <span class="pill r">⚠ hoje · ${Math.round(h)}h</span>`;
+  const d=Math.ceil(h/24);
+  if(d<=3)return ` <span class="pill y">⚠ ${d}d</span>`;
+  return ` <span class="pill g">${d}d</span>`;}
 function snapFromRow(r,dg){return {id:r.id,uf:r.uf,cidade:r.cidade,cidadeN:r.cidadeN,bairro:r.bairro,endereco:r.endereco,link:r.link,tipo:r.tipo,preco:r.preco,aval:r.aval,desc:r.desc,modal:r.modal,fin:r.fin,area:r.area,descr:r.descr,lastDg:dg,present:true};}
 function rowFromMeta(m){return {id:m.id,uf:m.uf||'',cidade:m.cidade||'',cidadeN:m.cidadeN||normCity(m.cidade||''),bairro:m.bairro||'',endereco:m.endereco||'',link:m.link||'',tipo:m.tipo||'',preco:m.preco,aval:m.aval,desc:m.desc||0,fin:m.fin||'',area:m.area||null,modal:m.modal||'',descr:m.descr||'',_absent:true};}
 function reconcileFavorites(dg){
@@ -335,7 +346,7 @@ function renderFavorites(p){
     let precoCell=fmt(d.preco);
     if(x.present&&x.meta.prevPreco!=null&&x.meta.prevPreco!==d.preco){const del=d.preco-x.meta.prevPreco,dn=del<0;precoCell+=` <span class="pill ${dn?'g':'r'}">${dn?'▼':'▲'} ${fmt(Math.abs(del))}</span>`;}
     const status=x.present?'<span class="pill g">Na lista</span>':'<span class="pill r">Fora da lista</span>'+(x.meta.lastDg?`<div class="muted" style="font-size:10px">visto ${x.meta.lastDg}</div>`:'');
-    const prazoCell=on?`<input type="date" value="${x.meta.prazo||''}" onclick="event.stopPropagation()" onchange="setPrazo('${x.id}',this.value)">`+prazoStatus(x.meta.prazo):'<span class="muted">—</span>';
+    const prazoCell=on?`<input type="datetime-local" value="${prazoInput(x.meta.prazo)}" onclick="event.stopPropagation()" onchange="setPrazo('${x.id}',this.value)" style="font-size:11px">`+prazoStatus(x.meta.prazo):'<span class="muted">—</span>';
     let farolCell='<span class="muted">—</span>',lanceCell='<span class="muted">—</span>';
     const _l=lanceOf(x.id),_teto=(_l.teto===''||_l.teto==null)?null:+_l.teto,_lm=x.present?Math.round(lanceMax(x.row,EPof(x.row)).lance):null;
     let tetoCell=_teto!=null?((_lm!=null&&_teto>_lm)?`<span class="neg">${fmt(_teto)} ⛔</span>`:fmt(_teto)):'<span class="muted">—</span>';
@@ -399,7 +410,8 @@ function renderPainel(){
 
   // Prazos
   h+=`<div class="card"><h4>⏰ Prazos de leilão</h4>`;
-  h+=lista(urg.concat(venc).slice(0,8),d=>`<div class="kv"><span>${linkIm(d)}</span><b class="${d.du<0?'neg':''}">${d.du<0?'vencido':d.du+'d'} · ${fmtDate(d.prazo)}</b></div>`,'Nenhum leilão nos próximos 7 dias.');
+  const restante=d=>{const hh=hoursUntil(d.prazo);if(hh==null)return '';if(hh<0)return 'vencido';if(hh<1)return Math.max(1,Math.round(hh*60))+' min';if(hh<24)return 'hoje · '+Math.round(hh)+'h';return Math.ceil(hh/24)+'d';};
+  h+=lista(urg.concat(venc).slice(0,8),d=>`<div class="kv"><span>${linkIm(d)}</span><b class="${d.du<0||hoursUntil(d.prazo)<24?'neg':''}">${restante(d)} · ${fmtDate(d.prazo)}</b></div>`,'Nenhum leilão nos próximos 7 dias.');
   if(semPrazo.length)h+=`<div class="muted" style="margin-top:8px">⚠ ${semPrazo.length} imóvel(is) de venda online <b>sem prazo preenchido</b> — defina na aba Favoritos.</div>`;
   h+='</div>';
 
@@ -768,7 +780,7 @@ function drawModal(){
   <h2>${r.tipo} · ${r.bairro} <span class="badge">${r.cidade}</span> <span class="pill ${fr.verd==='VERDE'?'g':fr.verd==='AMARELO'?'y':'r'}" id="farolPill">${fr.verd} · ${fr.score}</span></h2>
   <div class="muted">${r.endereco} · <a href="${r.link}" target="_blank">ver na Caixa ↗</a> · matrícula: <a href="https://venda-imoveis.caixa.gov.br/editais/matricula/${r.uf}/${r.id}.pdf" target="_blank">PDF ↗</a> · <a href="${gmapsUrl(r)}" target="_blank" rel="noopener">🗺 Google Maps ↗</a>${(GEO[r.id]&&GEO[r.id].lat!=null)?` · <span class="muted">📍 no mapa${GEO[r.id].aprox?' (aprox.)':''}</span>`:` · <a href="#" onclick="setGeoManual('${r.id}',prompt('Cole a coordenada (lat, long) — copie do Google Maps clicando com o botão direito no ponto:',''));return false;">📍 definir coordenada</a>`}</div>
   ${r._absent?`<div class="pill r" style="display:inline-block;margin:6px 0">⚠ Fora da lista atual — dados de ${(FAVMETA[r.id]&&FAVMETA[r.id].lastDg)||'?'}. Pode ter sido vendido/leiloado.</div>`:''}
-  ${isOnlineSale(r.modal)?`<div class="muted" style="margin:6px 0">⏳ Prazo do leilão: <input type="date" value="${(FAVMETA[r.id]&&FAVMETA[r.id].prazo)||''}" onchange="setPrazo('${r.id}',this.value)">${prazoStatus((FAVMETA[r.id]||{}).prazo)}${FIN[r.id]?'':' <span class="muted">— favorite ★ para acompanhar o prazo</span>'}</div>`:''}
+  ${isOnlineSale(r.modal)?`<div class="muted" style="margin:6px 0">⏳ Prazo do leilão: <input type="datetime-local" value="${prazoInput((FAVMETA[r.id]||{}).prazo)}" onchange="setPrazo('${r.id}',this.value)">${prazoStatus((FAVMETA[r.id]||{}).prazo)}${FIN[r.id]?'':' <span class="muted">— favorite ★ para acompanhar o prazo</span>'}</div>`:''}
   ${isShared(r.id)?`<div class="pill" style="display:inline-block;margin:6px 0;background:rgba(79,124,255,.16);color:#9bb4ff">🤝 Dossiê colaborativo — publicado por ${esc((SHARED[r.id].owner_email||'').split('@')[0])} · última edição por ${esc((SHARED[r.id].updated_by_email||'').split('@')[0])} há ${ago(SHARED[r.id].updated_at)}. Suas alterações aqui são vistas por todo o grupo.</div>`:''}
   <div id="decWrap">${decBanner(r,p)}</div>
   ${premEditor(r,p)}
