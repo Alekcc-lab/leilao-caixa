@@ -62,6 +62,9 @@
   .finbar{position:sticky;bottom:0;background:var(--panel2);border-top:1px solid var(--line);padding:10px 14px;display:flex;gap:10px;align-items:center;margin:14px -20px -16px;flex-wrap:wrap}
   .mono td,.mono th{font-variant-numeric:tabular-nums}
   .neg{color:#ff8b7d}
+  tbody tr.viewed td{background:#22304f}
+  tbody tr.viewed td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
+  tbody tr.viewed:hover td{background:#28375c}
   #gate{position:fixed;inset:52px 0 0 0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:40;padding:20px}
   .gatebox{max-width:440px;text-align:center;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:34px 30px}
   .gatebox h2{margin:12px 0 6px;font-size:20px}
@@ -183,7 +186,7 @@ function origemOf(r){const o=ORIGEM[r.id];return (o&&o.tipo)?o.tipo:origemGuess(
 function origemManual(r){return !!(ORIGEM[r.id]&&ORIGEM[r.id].tipo);}
 function isJudicial(r){const o=origemOf(r);return o==='Judicial'||o==='Penhora';}
 function matchOrigem(s){s=(''+s).toLowerCase();if(/extra|fiduc|9\.?514|consolida/.test(s))return 'Extrajudicial - fiduciária/financiamento';if(/penhora/.test(s))return 'Penhora';if(/judicial|execu[çc]/.test(s))return 'Judicial';if(/heran|invent/.test(s))return 'Herança/inventário';if(/da[çc][ãa]o/.test(s))return 'Dação em pagamento';return 'Outro / A confirmar';}
-let VIEW='all', IASEL={}, SHARED={}, _sharePush={}, _shareTimer=null, _sharePoll=null;
+let VIEW='all', IASEL={}, SHARED={}, _sharePush={}, _shareTimer=null, _sharePoll=null, LASTVIEW=null;
 // dossiê = tudo que você produziu sobre um imóvel (o que se compartilha)
 function collectDossie(id){const d={};const put=(k,v)=>{if(v!==undefined&&v!==null)d[k]=v;};
   put('ck',CKST[id]);put('far',FAR[id]);put('pov',POV[id]);put('meta',FAVMETA[id]);put('debt',DEBT[id]);put('comp',COMP[id]);put('ref',REF[id]);put('cen',CEN[id]);put('aix',AIX[id]);put('origem',ORIGEM[id]);return d;}
@@ -253,7 +256,7 @@ function renderFavorites(p){
     const prazoCell=on?`<input type="date" value="${x.meta.prazo||''}" onclick="event.stopPropagation()" onchange="setPrazo('${x.id}',this.value)">`+prazoStatus(x.meta.prazo):'<span class="muted">—</span>';
     let farolCell='<span class="muted">—</span>',lanceCell='<span class="muted">—</span>';
     if(x.present){const dec=decisao(x.row,EPof(x.row)),fr=dec.fr;farolCell=`<span class="pill ${fr.verd==='VERDE'?'g':fr.verd==='AMARELO'?'y':'r'}">${fr.verd}</span>`;lanceCell=`<span class="${dec.folga<0?'neg':''}">${fmt(dec.lance)}</span>${dec.folga<0?' ⛔':''}`;}
-    h+=`<tr onclick="openDetail('${x.id}')"><td onclick="event.stopPropagation();toggleFin('${x.id}')" style="cursor:pointer">⭐</td><td onclick="event.stopPropagation()"><input type="checkbox" ${iaSelected(x.id)?'checked':''} onchange="toggleIASel('${x.id}',this.checked)" style="width:auto" title="incluir no prompt da IA">${isAnalyzed(x.id)?' <span title="já analisado pela IA">🤖</span>':''}</td><td onclick="event.stopPropagation()" style="cursor:pointer">${isShared(x.id)?`<span title="compartilhado com o grupo — editado por ${esc((SHARED[x.id].updated_by_email||'').split('@')[0])} há ${ago(SHARED[x.id].updated_at)}" onclick="setView('shared')">🤝</span>`:`<span title="compartilhar com o grupo" onclick="shareProp('${x.id}')" style="opacity:.45">🤝</span>`}</td><td>${status}</td><td>${d.cidade||'—'}</td><td>${d.tipo||'—'}</td><td>${d.bairro||'—'}</td><td class="rt">${precoCell}</td><td class="rt">${d.desc!=null?(+d.desc).toFixed(1):'—'}%</td><td>${d.modal||'—'}</td><td>${prazoCell}</td><td class="rt">${lanceCell}</td><td>${farolCell}</td><td>🔍</td></tr>`;
+    h+=`<tr class="${LASTVIEW===x.id?'viewed':''}" onclick="openDetail('${x.id}')"><td onclick="event.stopPropagation();toggleFin('${x.id}')" style="cursor:pointer">⭐</td><td onclick="event.stopPropagation()"><input type="checkbox" ${iaSelected(x.id)?'checked':''} onchange="toggleIASel('${x.id}',this.checked)" style="width:auto" title="incluir no prompt da IA">${isAnalyzed(x.id)?' <span title="já analisado pela IA">🤖</span>':''}</td><td onclick="event.stopPropagation()" style="cursor:pointer">${isShared(x.id)?`<span title="compartilhado com o grupo — editado por ${esc((SHARED[x.id].updated_by_email||'').split('@')[0])} há ${ago(SHARED[x.id].updated_at)}" onclick="setView('shared')">🤝</span>`:`<span title="compartilhar com o grupo" onclick="shareProp('${x.id}')" style="opacity:.45">🤝</span>`}</td><td>${status}</td><td>${d.cidade||'—'}</td><td>${d.tipo||'—'}</td><td>${d.bairro||'—'}</td><td class="rt">${precoCell}</td><td class="rt">${d.desc!=null?(+d.desc).toFixed(1):'—'}%</td><td>${d.modal||'—'}</td><td>${prazoCell}</td><td class="rt">${lanceCell}</td><td>${farolCell}</td><td>🔍</td></tr>`;
   });
   h+='</tbody></table>';tableWrap.innerHTML=h;finbar.style.display='flex';finCount.textContent=items.length;
 }
@@ -269,7 +272,7 @@ function renderShared(){
     const dono=(s.owner_email||'').split('@')[0];const editor=(s.updated_by_email||'').split('@')[0];
     let farolCell='<span class="muted">—</span>';
     if(row){const fr=farol(row,EPof(row));farolCell=`<span class="pill ${fr.verd==='VERDE'?'g':fr.verd==='AMARELO'?'y':'r'}">${fr.verd}</span>`;}
-    h+=`<tr onclick="openDetail('${id}')"><td>${esc(s.titulo||id)}${FIN[id]?' ⭐':''}</td><td>${esc(dono)}${USER&&s.owner_id===USER.id?' <span class="pill g">você</span>':''}</td><td>${esc(editor)} · ${ago(s.updated_at)}</td><td class="rt">${row&&row.preco!=null?fmt(row.preco):'—'}</td><td>${farolCell}</td>
+    h+=`<tr class="${LASTVIEW===id?'viewed':''}" onclick="openDetail('${id}')"><td>${esc(s.titulo||id)}${FIN[id]?' ⭐':''}</td><td>${esc(dono)}${USER&&s.owner_id===USER.id?' <span class="pill g">você</span>':''}</td><td>${esc(editor)} · ${ago(s.updated_at)}</td><td class="rt">${row&&row.preco!=null?fmt(row.preco):'—'}</td><td>${farolCell}</td>
       <td onclick="event.stopPropagation()">${FIN[id]?'':'<button class="ghost" style="padding:2px 8px;font-size:11px" onclick="copyShared(\''+id+'\')">copiar</button> '}${USER&&s.owner_id===USER.id?'<button class="ghost" style="padding:2px 8px;font-size:11px" onclick="unshareProp(\''+id+'\')">✕</button>':''}</td></tr>`;});
   tableWrap.innerHTML=h+'</tbody></table>';finbar.style.display='none';
 }
@@ -447,25 +450,35 @@ function setAllTipos(v){document.querySelectorAll('.tp').forEach(c=>c.checked=v)
 function setAllModal(v){document.querySelectorAll('.md').forEach(c=>c.checked=v);applyFilters();}
 function applyFilters(){if(!RAW.length)return;const cid=fCidade.value,bai=fBairro.value,vmax=+fValor.value||Infinity;const tps=[...document.querySelectorAll('.tp:checked')].map(x=>x.value);const mdEls=document.querySelectorAll('.md');const mds=[...document.querySelectorAll('.md:checked')].map(x=>x.value);FILTERED=RAW.filter(r=>(!cid||r.cidadeN===cid)&&(!bai||normCity(r.bairro)===bai)&&r.preco<=vmax&&tps.includes(r.tipo)&&(!mdEls.length||mds.includes(r.modal)));render();}
 function recalc(){render();if(modalbg.style.display==='flex')drawModal();if(typeof cloudSave==='function')cloudSave();}
-function render(){const p=P();FILTERED.forEach(r=>{const a=avistaSeries(r,p).slice(-1)[0];r._luc=a.ll;r._roi=calc(r,p).investAvista?a.ll/calc(r,p).investAvista:0;r._far=farol(r,p);r._lance=lanceMax(r,p).lance;});FILTERED.sort((x,y)=>SORT.dir*((x[SORT.k]??-1e18)>(y[SORT.k]??-1e18)?1:-1));
+function render(){const _mainEl=document.querySelector('.main'),_sc=_mainEl?_mainEl.scrollTop:0;const _restore=()=>{if(_mainEl)_mainEl.scrollTop=_sc;};
+  const p=P();FILTERED.forEach(r=>{const a=avistaSeries(r,p).slice(-1)[0];r._luc=a.ll;r._roi=calc(r,p).investAvista?a.ll/calc(r,p).investAvista:0;r._far=farol(r,p);r._lance=lanceMax(r,p).lance;});FILTERED.sort((x,y)=>SORT.dir*((x[SORT.k]??-1e18)>(y[SORT.k]??-1e18)?1:-1));
   updateFavTab();updateShareTab();
-  if(VIEW==='shared'){renderShared();return;}
-  if(VIEW==='fav'){renderFavorites(p);return;}
+  if(VIEW==='shared'){renderShared();_restore();return;}
+  if(VIEW==='fav'){renderFavorites(p);_restore();return;}
   const n=FILTERED.length,avgD=n?FILTERED.reduce((s,r)=>s+r.desc,0)/n:0,best=n?Math.max(...FILTERED.map(r=>r.desc)):0,fin=Object.keys(FIN).filter(k=>FIN[k]).length;
   stats.innerHTML=[['Imóveis',n],['Desconto médio',avgD.toFixed(1)+'%'],['Maior desconto',best.toFixed(1)+'%'],['Favoritos',fin]].map(s=>`<div class="stat">${s[0]}<b>${s[1]}</b></div>`).join('');
   if(!n){tableWrap.innerHTML='<div class="empty">Nenhum imóvel no filtro.</div>';finbar.style.display='none';return;}
   const cols=[['#',''],['cidade','Cidade'],['tipo','Tipo'],['bairro','Bairro'],['preco','Preço'],['aval','Avaliação'],['desc','Desc.%'],['_luc','Lucro Líq.'],['_roi','ROI'],['_lance','Lance máx.'],['modal','Modalidade'],['fin','Fin.'],['_far','Farol'],['sel','★']];
   let h='<table class="mono"><thead><tr>'+cols.map(c=>`<th onclick="sortBy('${c[0]}')">${c[1]}</th>`).join('')+'</tr></thead><tbody>';
-  FILTERED.forEach((r,i)=>{const fc=r._far.verd,acima=r.preco>r._lance;h+=`<tr onclick="openDetail('${r.id}')"><td>${i+1}${POV[r.id]?' ⚙':''}</td><td>${r.cidade}</td><td>${r.tipo}</td><td>${r.bairro}</td><td class="rt">${fmt(r.preco)}</td><td class="rt">${fmt(r.aval)}</td><td class="rt"><span class="pill ${r.desc>=45?'g':r.desc>=40?'y':''}">${r.desc.toFixed(1)}%</span></td><td class="rt ${r._luc<0?'neg':''}">${fmt(r._luc)}</td><td class="rt">${pct(r._roi)}</td><td class="rt ${acima?'neg':''}" title="${acima?'arrematação acima do teto':'dentro do teto'}">${fmt(r._lance)}${acima?' ⛔':''}</td><td>${r.modal}</td><td>${r.fin==='Sim'?'<span class="pill g">Sim</span>':'Não'}</td><td><span class="pill ${fc==='VERDE'?'g':fc==='AMARELO'?'y':'r'}">${fc}</span></td><td onclick="event.stopPropagation();toggleFin('${r.id}')">${FIN[r.id]?'⭐':'☆'}</td></tr>`;});
-  h+='</tbody></table>';tableWrap.innerHTML=h;const c=Object.keys(FIN).filter(k=>FIN[k]).length;finbar.style.display=c?'flex':'none';finCount.textContent=c;}
+  FILTERED.forEach((r,i)=>{const fc=r._far.verd,acima=r.preco>r._lance;h+=`<tr class="${LASTVIEW===r.id?'viewed':''}" onclick="openDetail('${r.id}')"><td>${i+1}${POV[r.id]?' ⚙':''}</td><td>${r.cidade}</td><td>${r.tipo}</td><td>${r.bairro}</td><td class="rt">${fmt(r.preco)}</td><td class="rt">${fmt(r.aval)}</td><td class="rt"><span class="pill ${r.desc>=45?'g':r.desc>=40?'y':''}">${r.desc.toFixed(1)}%</span></td><td class="rt ${r._luc<0?'neg':''}">${fmt(r._luc)}</td><td class="rt">${pct(r._roi)}</td><td class="rt ${acima?'neg':''}" title="${acima?'arrematação acima do teto':'dentro do teto'}">${fmt(r._lance)}${acima?' ⛔':''}</td><td>${r.modal}</td><td>${r.fin==='Sim'?'<span class="pill g">Sim</span>':'Não'}</td><td><span class="pill ${fc==='VERDE'?'g':fc==='AMARELO'?'y':'r'}">${fc}</span></td><td onclick="event.stopPropagation();toggleFin('${r.id}')">${FIN[r.id]?'⭐':'☆'}</td></tr>`;});
+  h+='</tbody></table>';tableWrap.innerHTML=h;const c=Object.keys(FIN).filter(k=>FIN[k]).length;finbar.style.display=c?'flex':'none';finCount.textContent=c;_restore();}
 function sortBy(k){if(k==='sel'||k==='#')return;SORT.dir=SORT.k===k?-SORT.dir:-1;SORT.k=k;render();}
 function toggleFin(id){FIN[id]=!FIN[id];if(FIN[id]){const row=RAW.find(r=>r.id===id);if(row){const snap=snapFromRow(row,window._dg||'');snap.prevPreco=null;snap.firstDg=window._dg||'';snap.prazo=(FAVMETA[id]&&FAVMETA[id].prazo)||'';FAVMETA[id]=snap;}}else{delete FAVMETA[id];}saveLS('fav_meta',FAVMETA);saveLS('fin_sel',FIN);render();}
 function clearFin(){if(!confirm('Remover TODOS os favoritos? (o checklist e as premissas por imóvel são mantidos)'))return;Object.keys(FIN).forEach(k=>delete FIN[k]);Object.keys(FAVMETA).forEach(k=>delete FAVMETA[k]);saveLS('fav_meta',FAVMETA);saveLS('fin_sel',FIN);render();}
 
 // ---------- detalhe ----------
 let CURTAB='resumo';
-function openDetail(id){let r=RAW.find(x=>x.id===id);if(!r){const m=FAVMETA[id];if(m&&m.preco!=null)r=rowFromMeta(m);}if(!r)r=sharedRowFor(id);if(!r){alert('Sem dados deste imóvel na lista atual. Carregue uma lista que o contenha para ver a análise completa.');return;}window._cur=r;CURTAB='resumo';drawModal();modalbg.style.display='flex';}
-function closeModal(){modalbg.style.display='none';}
+function openDetail(id){let r=RAW.find(x=>x.id===id);if(!r){const m=FAVMETA[id];if(m&&m.preco!=null)r=rowFromMeta(m);}if(!r)r=sharedRowFor(id);if(!r){alert('Sem dados deste imóvel na lista atual. Carregue uma lista que o contenha para ver a análise completa.');return;}window._cur=r;LASTVIEW=id;CURTAB='resumo';drawModal();modalbg.style.display='flex';}
+function closeModal(){
+  modalbg.style.display='none';
+  render();                                   // atualiza ★/dados e marca a linha onde você parou
+  const tr=document.querySelector('#tableWrap tbody tr.viewed');
+  if(tr){const m=document.querySelector('.main');
+    if(m){const rt=tr.getBoundingClientRect(),mt=m.getBoundingClientRect();
+      if(rt.top<mt.top+40||rt.bottom>mt.bottom-10)tr.scrollIntoView({block:'center'});}
+    else tr.scrollIntoView({block:'center'});}
+}
+function toggleFinDetail(id){toggleFin(id);drawModal();}
 modalbg.addEventListener('click',e=>{if(e.target===modalbg)closeModal();});
 function setTab(t){CURTAB=t;drawModal();}
 const TABS=[['resumo','Resumo & Farol'],['comp','Comparáveis'],['debitos','Débitos'],['reforma','Reforma'],['cen','Cenários'],['calc','Cálculos'],['avista','À Vista'],['price','PRICE'],['sac','SAC'],['result','Resultados'],['ck','Checklist'],['crono','🗓 Cronograma']];
@@ -476,6 +489,7 @@ function renderTabs(){return '<div class="tabs">'+TAB_GROUPS.map(g=>'<span class
 function drawModal(){
   const r=window._cur,p=EP();const c=calc(r,p),fr=farol(r,p);
   let b=`<button class="close" onclick="closeModal()">✕ Fechar</button>
+  <button class="close" style="margin-right:8px;${FIN[r.id]?'background:rgba(241,196,15,.18);color:#f4d35e':''}" onclick="toggleFinDetail('${r.id}')" title="${FIN[r.id]?'remover dos favoritos':'adicionar aos favoritos'}">${FIN[r.id]?'⭐ Favorito':'☆ Favoritar'}</button>
   <h2>${r.tipo} · ${r.bairro} <span class="badge">${r.cidade}</span> <span class="pill ${fr.verd==='VERDE'?'g':fr.verd==='AMARELO'?'y':'r'}" id="farolPill">${fr.verd} · ${fr.score}</span></h2>
   <div class="muted">${r.endereco} · <a href="${r.link}" target="_blank">ver na Caixa ↗</a> · matrícula: <a href="https://venda-imoveis.caixa.gov.br/editais/matricula/${r.uf}/${r.id}.pdf" target="_blank">PDF ↗</a></div>
   ${r._absent?`<div class="pill r" style="display:inline-block;margin:6px 0">⚠ Fora da lista atual — dados de ${(FAVMETA[r.id]&&FAVMETA[r.id].lastDg)||'?'}. Pode ter sido vendido/leiloado.</div>`:''}
