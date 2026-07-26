@@ -358,6 +358,20 @@ function renderMapa(){
   });
   if(pts.length&&!window._mapFit){try{_map.fitBounds(pts,{padding:[40,40],maxZoom:15});window._mapFit=true;}catch(e){}}
   setTimeout(()=>{if(_map)_map.invalidateSize();},60);
+  // aviso sobre o mapa (vazio / localizando)
+  let ov=document.getElementById('mapOv');
+  if(!ov&&document.getElementById('mapEl')){ov=document.createElement('div');ov.id='mapOv';
+    ov.style.cssText='position:absolute;z-index:500;left:50%;top:14px;transform:translateX(-50%);background:rgba(15,20,32,.92);border:1px solid var(--line);border-radius:9px;padding:8px 14px;font-size:12.5px;pointer-events:none;text-align:center';
+    document.getElementById('mapEl').appendChild(ov);}
+  if(ov){
+    if(_geoBusy)ov.innerHTML='⏳ Localizando os imóveis... os pinos vão aparecendo.';
+    else if(!comGeo.length&&semGeo.length)ov.innerHTML='📍 Clique em <b>Localizar imóveis</b> para posicionar os pinos.';
+    else if(!rows.length)ov.innerHTML='Nenhum favorito ainda — marque imóveis com ★ ou ligue "incluir os imóveis filtrados".';
+    else ov.style.display='none';
+    if(ov.innerHTML&&(_geoBusy||!comGeo.length))ov.style.display='block';
+  }
+  // começa sozinho quando são poucos (evita a tela vazia)
+  if(!_geoBusy&&semGeo.length&&semGeo.length<=40&&!window._geoAuto){window._geoAuto=true;setTimeout(()=>geocodeList(mapRows(),'btnGeo'),150);}
 }
 function closeMapPopup(){if(_map)_map.closePopup();}
 function renderShared(){
