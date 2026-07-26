@@ -346,7 +346,7 @@ function renderFavorites(p){
     let precoCell=fmt(d.preco);
     if(x.present&&x.meta.prevPreco!=null&&x.meta.prevPreco!==d.preco){const del=d.preco-x.meta.prevPreco,dn=del<0;precoCell+=` <span class="pill ${dn?'g':'r'}">${dn?'▼':'▲'} ${fmt(Math.abs(del))}</span>`;}
     const status=x.present?'<span class="pill g">Na lista</span>':'<span class="pill r">Fora da lista</span>'+(x.meta.lastDg?`<div class="muted" style="font-size:10px">visto ${x.meta.lastDg}</div>`:'');
-    const prazoCell=on?`<input type="datetime-local" value="${prazoInput(x.meta.prazo)}" onclick="event.stopPropagation()" onchange="setPrazo('${x.id}',this.value)" style="font-size:11px">`+prazoStatus(x.meta.prazo):'<span class="muted">—</span>';
+    const prazoCell=on?`<div style="display:flex;flex-direction:column;gap:3px;align-items:flex-start"><input type="datetime-local" value="${prazoInput(x.meta.prazo)}" onclick="event.stopPropagation()" onchange="setPrazo('${x.id}',this.value)" style="font-size:11px;width:165px">${prazoStatus(x.meta.prazo)}</div>`:'<span class="muted">—</span>';
     let farolCell='<span class="muted">—</span>',lanceCell='<span class="muted">—</span>';
     const _l=lanceOf(x.id),_teto=(_l.teto===''||_l.teto==null)?null:+_l.teto,_lm=x.present?Math.round(lanceMax(x.row,EPof(x.row)).lance):null;
     let tetoCell=_teto!=null?((_lm!=null&&_teto>_lm)?`<span class="neg">${fmt(_teto)} ⛔</span>`:fmt(_teto)):'<span class="muted">—</span>';
