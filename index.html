@@ -184,7 +184,7 @@
 <script src="config.js"></script>
 <script>
 let RAW=[], FILTERED=[], SORT={k:'desc',dir:-1};
-const FIN=loadLS('fin_sel',{}), CKST=loadLS('ck_state',{}), FAR=loadLS('far_state',{}), POV=loadLS('prem_over',{}), FAVMETA=loadLS('fav_meta',{}), DEBT=loadLS('debt',{}), COMP=loadLS('comp',{}), REF=loadLS('ref',{}), CEN=loadLS('cen',{}), AIX=loadLS('aix',{}), ORIGEM=loadLS('origem',{}), LANCE=loadLS('lance',{}), GEO=loadLS('geo',{});
+const FIN=loadLS('fin_sel',{}), CKST=loadLS('ck_state',{}), FAR=loadLS('far_state',{}), POV=loadLS('prem_over',{}), FAVMETA=loadLS('fav_meta',{}), DEBT=loadLS('debt',{}), COMP=loadLS('comp',{}), REF=loadLS('ref',{}), CEN=loadLS('cen',{}), AIX=loadLS('aix',{}), ORIGEM=loadLS('origem',{}), LANCE=loadLS('lance',{}), GEO=loadLS('geo',{}), GEOB=loadLS('geob',{});
 let _map=null,_mapLayer=null,_geoBusy=false;
 function gmapsUrl(r){return 'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent([r.endereco,r.bairro,r.cidade,r.uf,'Brasil'].filter(Boolean).join(', '));}
 function geoQueries(r){const q=[];const c=[r.cidade,r.uf,'Brasil'].filter(Boolean).join(', ');
@@ -203,6 +203,35 @@ async function geocodeOne(r){
     await new Promise(s=>setTimeout(s,1100));   // política do Nominatim: ~1 req/s
   }
   return null;
+}
+// --- triagem: geocodifica por BAIRRO (1 req por bairro, não por imóvel) ---
+function bairroKey(r){return normCity(r.bairro||'')+'|'+normCity(r.cidade||'')+'|'+(r.uf||'');}
+function hashNum(s){let h=0;for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))|0;return Math.abs(h);}
+function scatter(id,lat,lon){const h=hashNum(''+id),a=(h%360)*Math.PI/180,d=0.0006+((h>>9)%100)/100*0.0028;return {lat:lat+Math.cos(a)*d,lon:lon+Math.sin(a)*d};}
+function posOf(r){
+  const g=GEO[r.id];if(g&&g.lat!=null)return {lat:g.lat,lon:g.lon,aprox:!!g.aprox,exata:true};
+  const b=GEOB[bairroKey(r)];if(b&&b.lat!=null){const s=scatter(r.id,b.lat,b.lon);return {lat:s.lat,lon:s.lon,aprox:true,exata:false};}
+  return null;
+}
+async function geocodeBairros(rows,btnId){
+  if(_geoBusy)return;_geoBusy=true;
+  const keys=[...new Set(rows.filter(r=>!(GEO[r.id]&&GEO[r.id].lat!=null)).map(bairroKey))].filter(k=>!GEOB[k]);
+  let ok=0;
+  for(let i=0;i<keys.length;i++){
+    const b=document.getElementById(btnId);if(b)b.textContent=`⏳ localizando bairro ${i+1}/${keys.length}...`;
+    const [bai,cid,uf]=keys[i].split('|');
+    const q=[bai,cid,uf,'Brasil'].filter(Boolean).join(', ');
+    try{
+      const resp=await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&q='+encodeURIComponent(q));
+      const j=resp.ok?await resp.json():null;
+      if(j&&j.length){GEOB[keys[i]]={lat:+j[0].lat,lon:+j[0].lon};ok++;}else GEOB[keys[i]]={falhou:true};
+    }catch(e){GEOB[keys[i]]={falhou:true};}
+    saveLS('geob',GEOB);
+    if(i%2===1||i===keys.length-1)renderMapa();
+    await new Promise(s=>setTimeout(s,1100));
+  }
+  _geoBusy=false;saveLS('geob',GEOB);renderMapa();
+  if(keys.length)alert('Localizados '+ok+' de '+keys.length+' bairro(s). Os pinos ficam espalhados dentro do bairro (aproximados) — favorite os interessantes e use "Localizar imóveis" para o endereço exato.');
 }
 async function geocodeList(rows,btnId){
   if(_geoBusy)return;_geoBusy=true;
@@ -326,19 +355,22 @@ function mapRows(){
 function renderMapa(){
   if(typeof L==='undefined'){tableWrap.innerHTML='<div class="empty">Biblioteca do mapa não carregou. Verifique a conexão e recarregue a página.</div>';return;}
   const rows=mapRows();
-  const comGeo=rows.filter(r=>GEO[r.id]&&GEO[r.id].lat!=null);
-  const semGeo=rows.filter(r=>!GEO[r.id]||GEO[r.id].lat==null);
-  const aprox=comGeo.filter(r=>GEO[r.id].aprox).length;
-  stats.innerHTML=[['No mapa',comGeo.length],['Sem localização',semGeo.length],['Aproximados',aprox],['Fonte','OpenStreetMap']].map(s=>`<div class="stat">${s[0]}<b>${s[1]}</b></div>`).join('');
+  const comGeo=rows.filter(r=>posOf(r));
+  const semGeo=rows.filter(r=>!posOf(r));
+  const aprox=comGeo.filter(r=>posOf(r).aprox).length;
+  const semExata=rows.filter(r=>!(GEO[r.id]&&GEO[r.id].lat!=null)).length;
+  stats.innerHTML=[['No mapa',comGeo.length],['Sem localização',semGeo.length],['Aproximados',aprox],['Favoritos',Object.keys(FIN).filter(k=>FIN[k]).length]].map(s=>`<div class="stat">${s[0]}<b>${s[1]}</b></div>`).join('');
   if(!document.getElementById('mapEl')){
     tableWrap.innerHTML=`<div class="muted" style="margin-bottom:6px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-      <button id="btnGeo" class="ghost" style="padding:4px 10px;font-size:12px" onclick="geocodeList(mapRows(),'btnGeo')">📍 Localizar imóveis (${semGeo.length} pendente${semGeo.length===1?'':'s'})</button>
-      <label class="chk" style="margin:0"><input type="checkbox" ${window._mapAll?'checked':''} onchange="window._mapAll=this.checked;renderMapa()" style="width:auto"> incluir os imóveis filtrados (além dos favoritos)</label>
-      <span>Pino = <b>preço</b>; cor = farol. Clique no pino para abrir a análise.</span></div>
+      <label class="chk" style="margin:0"><input type="checkbox" ${window._mapAll?'checked':''} onchange="window._mapAll=this.checked;window._mapFit=false;window._geoAuto=false;renderMapa()" style="width:auto"> <b>modo triagem</b>: incluir os imóveis filtrados</label>
+      <button id="btnGeoB" class="ghost" style="padding:4px 10px;font-size:12px" onclick="geocodeBairros(mapRows(),'btnGeoB')" title="1 consulta por bairro — rápido para triagem">🏙 Localizar por bairro (rápido)</button>
+      <button id="btnGeo" class="ghost" style="padding:4px 10px;font-size:12px" onclick="geocodeList(mapRows(),'btnGeo')" title="1 consulta por imóvel — preciso, porém lento">🎯 Endereço exato (${semExata})</button>
+      <span>Clique no pino para <b>favoritar</b> ou abrir a análise.</span></div>
       <div id="mapEl" style="height:calc(100vh - 300px);min-height:380px;border-radius:10px;overflow:hidden;border:1px solid var(--line)"></div>`;
     _map=null;_mapLayer=null;finbar.style.display='none';
   }else{
-    const b=document.getElementById('btnGeo');if(b&&!_geoBusy)b.textContent=`📍 Localizar imóveis (${semGeo.length} pendente${semGeo.length===1?'':'s'})`;
+    const b=document.getElementById('btnGeo');if(b&&!_geoBusy)b.textContent=`🎯 Endereço exato (${semExata})`;
+    const bb=document.getElementById('btnGeoB');if(bb&&!_geoBusy)bb.textContent='🏙 Localizar por bairro (rápido)';
   }
   if(!_map){_map=L.map('mapEl',{scrollWheelZoom:true});
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap'}).addTo(_map);
@@ -346,16 +378,20 @@ function renderMapa(){
   if(_mapLayer){_mapLayer.remove();_mapLayer=null;}
   _mapLayer=L.layerGroup().addTo(_map);
   const pts=[];
+  const compacto=comGeo.length>60;
   comGeo.forEach(r=>{
-    const g=GEO[r.id],p=EPof(r),fr=farol(r,p),PR=(p.preco!=null?p.preco:r.preco);
+    const g=posOf(r),p=EPof(r),fr=farol(r,p),PR=(p.preco!=null?p.preco:r.preco);
+    const fav=!!FIN[r.id];
     const cor=fr.verd==='VERDE'?'#2ecc71':fr.verd==='AMARELO'?'#f1c40f':'#e74c3c';
-    const html=`<div style="background:${cor};color:${fr.verd==='AMARELO'?'#222':'#fff'};padding:2px 7px;border-radius:11px;font:700 11px -apple-system,sans-serif;white-space:nowrap;border:2px solid rgba(0,0,0,.35);box-shadow:0 1px 4px rgba(0,0,0,.5)">${fmt(PR/1000)}k${g.aprox?' ~':''}</div>`;
+    const html=compacto&&!fav
+      ?`<div style="width:11px;height:11px;border-radius:50%;background:${cor};border:1.5px solid rgba(0,0,0,.5);box-shadow:0 1px 3px rgba(0,0,0,.6)"></div>`
+      :`<div style="background:${cor};color:${fr.verd==='AMARELO'?'#222':'#fff'};padding:2px 7px;border-radius:11px;font:700 11px -apple-system,sans-serif;white-space:nowrap;border:2px solid ${fav?'#f4d35e':'rgba(0,0,0,.35)'};box-shadow:0 1px 4px rgba(0,0,0,.5)">${fav?'⭐':''}${fmt(PR/1000)}k${g.aprox?' ~':''}</div>`;
     const mk=L.marker([g.lat,g.lon],{icon:L.divIcon({html,className:'',iconSize:null})}).addTo(_mapLayer);
-    mk.bindPopup(`<div style="font:13px -apple-system,sans-serif;min-width:190px">
+    mk.bindPopup(`<div style="font:13px -apple-system,sans-serif;min-width:210px">
       <b>${esc(r.tipo||'')} · ${esc(r.bairro||'')}</b><br>${esc(r.cidade||'')} — ${esc(r.endereco||'')}<br>
       <b>R$ ${fmt(PR)}</b> · aval. R$ ${fmt(r.aval)} · ${(100*(1-PR/r.aval)).toFixed(1)}%<br>
-      Farol: <b>${fr.verd}</b> · Lance máx.: R$ ${fmt(lanceMax(r,p).lance)}${g.aprox?'<br><i>📍 localização aproximada</i>':''}<br>
-      <a href="#" onclick="closeMapPopup();openDetail('${r.id}');return false;">abrir análise</a> · <a href="${gmapsUrl(r)}" target="_blank">Google Maps ↗</a></div>`);
+      Farol: <b>${fr.verd}</b> · Lance máx.: R$ ${fmt(lanceMax(r,p).lance)}${g.aprox?'<br><i>📍 aproximado (bairro)</i>':''}<br>
+      <a href="#" onclick="toggleFinMapa('${r.id}');return false;"><b>${fav?'⭐ desfavoritar':'☆ favoritar'}</b></a> · <a href="#" onclick="closeMapPopup();openDetail('${r.id}');return false;">análise</a> · <a href="${gmapsUrl(r)}" target="_blank">Maps ↗</a></div>`);
     pts.push([g.lat,g.lon]);
   });
   if(pts.length&&!window._mapFit){try{_map.fitBounds(pts,{padding:[40,40],maxZoom:15});window._mapFit=true;}catch(e){}}
@@ -367,15 +403,25 @@ function renderMapa(){
     document.getElementById('mapEl').appendChild(ov);}
   if(ov){
     if(_geoBusy)ov.innerHTML='⏳ Localizando os imóveis... os pinos vão aparecendo.';
-    else if(!comGeo.length&&semGeo.length)ov.innerHTML='📍 Clique em <b>Localizar imóveis</b> para posicionar os pinos.';
+    else if(!comGeo.length&&semGeo.length)ov.innerHTML='📍 Clique em <b>Localizar por bairro</b> (rápido) ou <b>Endereço exato</b> para posicionar os pinos.';
     else if(!rows.length)ov.innerHTML='Nenhum favorito ainda — marque imóveis com ★ ou ligue "incluir os imóveis filtrados".';
     else ov.style.display='none';
     if(ov.innerHTML&&(_geoBusy||!comGeo.length))ov.style.display='block';
   }
   // começa sozinho quando são poucos (evita a tela vazia)
-  if(!_geoBusy&&semGeo.length&&semGeo.length<=40&&!window._geoAuto){window._geoAuto=true;setTimeout(()=>geocodeList(mapRows(),'btnGeo'),150);}
+  if(!_geoBusy&&semGeo.length&&!window._geoAuto){
+    const bPend=[...new Set(rows.filter(r=>!posOf(r)).map(bairroKey))].filter(k=>!GEOB[k]).length;
+    if(!window._mapAll&&semGeo.length<=40){window._geoAuto=true;setTimeout(()=>geocodeList(mapRows(),'btnGeo'),150);}       // poucos favoritos: endereço exato
+    else if(bPend&&bPend<=60){window._geoAuto=true;setTimeout(()=>geocodeBairros(mapRows(),'btnGeoB'),150);}                 // triagem: por bairro
+  }
 }
 function closeMapPopup(){if(_map)_map.closePopup();}
+function toggleFinMapa(id){FIN[id]=!FIN[id];
+  if(FIN[id]){const row=RAW.find(r=>r.id===id);if(row){const snap=snapFromRow(row,window._dg||'');snap.prevPreco=null;snap.firstDg=window._dg||'';snap.prazo=(FAVMETA[id]&&FAVMETA[id].prazo)||'';FAVMETA[id]=snap;}}else{delete FAVMETA[id];}
+  saveLS('fav_meta',FAVMETA);saveLS('fin_sel',FIN);
+  const c=_map?_map.getCenter():null,z=_map?_map.getZoom():null;
+  renderMapa();
+  if(c&&_map)_map.setView(c,z,{animate:false});}
 function renderShared(){
   const ids=Object.keys(SHARED);
   const meus=ids.filter(id=>USER&&SHARED[id].owner_id===USER.id).length;
@@ -1007,17 +1053,17 @@ const GLOBAL_INPUTS=['pVendaPct','pPrazoVenda','pJuros','pEntrada','pItbi','pCor
 function collectState(){
   const globals={};
   GLOBAL_INPUTS.forEach(id=>{const el=document.getElementById(id);if(el)globals[id]=el.value;});
-  return {v:7,fin:FIN,ck:CKST,far:FAR,pov:POV,favmeta:FAVMETA,debt:DEBT,comp:COMP,ref:REF,cen:CEN,aix:AIX,origem:ORIGEM,lance:LANCE,geo:GEO,globals};
+  return {v:7,fin:FIN,ck:CKST,far:FAR,pov:POV,favmeta:FAVMETA,debt:DEBT,comp:COMP,ref:REF,cen:CEN,aix:AIX,origem:ORIGEM,lance:LANCE,geo:GEO,geob:GEOB,globals};
 }
 function hydrateState(d){
   if(!d||typeof d!=='object')return;
   HYDRATING=true;
   try{
     const repl=(obj,src)=>{Object.keys(obj).forEach(k=>delete obj[k]);if(src&&typeof src==='object')Object.assign(obj,src);};
-    repl(FIN,d.fin);repl(CKST,d.ck);repl(FAR,d.far);repl(POV,d.pov);repl(FAVMETA,d.favmeta);repl(DEBT,d.debt);repl(COMP,d.comp);repl(REF,d.ref);repl(CEN,d.cen);repl(AIX,d.aix);repl(ORIGEM,d.origem);repl(LANCE,d.lance);repl(GEO,d.geo);
+    repl(FIN,d.fin);repl(CKST,d.ck);repl(FAR,d.far);repl(POV,d.pov);repl(FAVMETA,d.favmeta);repl(DEBT,d.debt);repl(COMP,d.comp);repl(REF,d.ref);repl(CEN,d.cen);repl(AIX,d.aix);repl(ORIGEM,d.origem);repl(LANCE,d.lance);repl(GEO,d.geo);repl(GEOB,d.geob);
     if(d.globals)Object.keys(d.globals).forEach(id=>{const el=document.getElementById(id);if(el&&d.globals[id]!=null&&(id!=='fCidade'||[...el.options].some(o=>o.value===d.globals[id])))el.value=d.globals[id];});
     // grava localmente sem disparar cloudSave
-    try{localStorage.setItem('fin_sel',JSON.stringify(FIN));localStorage.setItem('ck_state',JSON.stringify(CKST));localStorage.setItem('far_state',JSON.stringify(FAR));localStorage.setItem('prem_over',JSON.stringify(POV));localStorage.setItem('fav_meta',JSON.stringify(FAVMETA));localStorage.setItem('debt',JSON.stringify(DEBT));localStorage.setItem('comp',JSON.stringify(COMP));localStorage.setItem('ref',JSON.stringify(REF));localStorage.setItem('cen',JSON.stringify(CEN));localStorage.setItem('aix',JSON.stringify(AIX));localStorage.setItem('origem',JSON.stringify(ORIGEM));localStorage.setItem('lance',JSON.stringify(LANCE));localStorage.setItem('geo',JSON.stringify(GEO));}catch(e){}
+    try{localStorage.setItem('fin_sel',JSON.stringify(FIN));localStorage.setItem('ck_state',JSON.stringify(CKST));localStorage.setItem('far_state',JSON.stringify(FAR));localStorage.setItem('prem_over',JSON.stringify(POV));localStorage.setItem('fav_meta',JSON.stringify(FAVMETA));localStorage.setItem('debt',JSON.stringify(DEBT));localStorage.setItem('comp',JSON.stringify(COMP));localStorage.setItem('ref',JSON.stringify(REF));localStorage.setItem('cen',JSON.stringify(CEN));localStorage.setItem('aix',JSON.stringify(AIX));localStorage.setItem('origem',JSON.stringify(ORIGEM));localStorage.setItem('lance',JSON.stringify(LANCE));localStorage.setItem('geo',JSON.stringify(GEO));localStorage.setItem('geob',JSON.stringify(GEOB));}catch(e){}
   }finally{HYDRATING=false;}
   updateFavTab();if(RAW.length)applyFilters();else if(VIEW==='fav')render();
 }
