@@ -156,6 +156,7 @@
       <button data-v="fav" onclick="setView('fav')">★ Favoritos (0)</button>
       <button data-v="shared" onclick="setView('shared')">🤝 Compartilhados (0)</button>
       <button data-v="map" onclick="setView('map')">🗺 Mapa</button>
+      <button data-v="painel" onclick="setView('painel')">📊 Painel</button>
     </div>
     <div class="statrow" id="stats"></div>
     <div id="tableWrap"><div class="empty">Nenhum dado carregado.<br>Baixe a lista em <a href="https://venda-imoveis.caixa.gov.br/sistema/download-lista.asp" target="_blank">download-lista.asp</a> e carregue aqui.</div></div>
@@ -345,6 +346,103 @@ function renderFavorites(p){
   h+='</tbody></table>';tableWrap.innerHTML=h;finbar.style.display='flex';finCount.textContent=items.length;
 }
 
+// ---------- Painel da carteira ----------
+function painelData(){
+  return favRows().map(r=>{
+    const p=EPof(r),dec=decisao(r,p),l=lanceOf(r.id),meta=FAVMETA[r.id]||{};
+    const ck=checklist(r,p);
+    const crit=ck.filter(c=>c.crit==='Crítico'&&(c.status==='Pendente'||c.status==='Problema')).length;
+    const tarefas=ck.filter(c=>c.dataFim&&c.status!=='OK'&&c.status!=='N/A').map(c=>({item:c.item,fim:c.dataFim}));
+    tarefas.sort((a,b)=>a.fim<b.fim?-1:1);
+    const c=calc(r,p),av=avistaSeries(r,p).slice(-1)[0];
+    return {r,p,dec,l,meta,prazo:meta.prazo||'',du:daysUntil(meta.prazo||''),crit,tarefas,
+      roi:c.investAvista?av.ll/c.investAvista:0,lucro:av.ll,PR:(p.preco!=null?p.preco:r.preco),
+      online:isOnlineSale(r.modal),res:(l.resultado||'Não disputado'),
+      teto:(l.teto===''||l.teto==null)?null:+l.teto};
+  });
+}
+function kpi(lbl,val,sub,cor){return `<div class="stat"${cor?` style="border-color:${cor}"`:''}>${lbl}<b${cor?` style="color:${cor}"`:''}>${val}</b>${sub?`<div class="muted" style="font-size:10.5px;margin-top:2px">${sub}</div>`:''}</div>`;}
+function linkIm(d){return `<a href="#" onclick="openDetail('${d.r.id}');return false;">${esc((d.r.tipo||'')+' · '+(d.r.bairro||'')+', '+(d.r.cidade||''))}</a>`;}
+function countBy(arr,fn){const m={};arr.forEach(x=>{const k=fn(x)||'—';m[k]=(m[k]||0)+1;});return m;}
+function barChart(map,titulo,cor,max){
+  const ks=Object.keys(map).sort((a,b)=>map[b]-map[a]).slice(0,max||8);
+  if(!ks.length)return '<div class="muted">sem dados</div>';
+  return chart(ks.map(k=>k.length>14?k.slice(0,13)+'…':k),[{name:titulo,color:cor,data:ks.map(k=>map[k])}],{title:titulo,h:200,fmtY:v=>Math.round(v)});
+}
+function renderPainel(){
+  const D=painelData();
+  if(!D.length){stats.innerHTML='';tableWrap.innerHTML='<div class="empty">Nenhum favorito ainda.<br>Marque imóveis com ★ (na lista ou no mapa) para acompanhar sua carteira aqui.</div>';finbar.style.display='none';return;}
+  const urg=D.filter(d=>d.online&&d.du!=null&&d.du>=0&&d.du<=7);
+  const venc=D.filter(d=>d.online&&d.du!=null&&d.du<0&&d.res==='Não disputado');
+  const semPrazo=D.filter(d=>d.online&&!d.prazo);
+  const lib=D.filter(d=>d.dec.liberado),bloq=D.filter(d=>!d.dec.liberado);
+  const acima=D.filter(d=>d.dec.acimaTeto);
+  const comTeto=D.filter(d=>d.teto!=null);
+  const capital=comTeto.reduce((s,d)=>s+d.teto,0);
+  const arrem=D.filter(d=>d.res==='Arrematado'),perd=D.filter(d=>d.res==='Perdi a disputa'),desist=D.filter(d=>d.res==='Desisti');
+  const disputados=arrem.length+perd.length;
+  const critTot=D.reduce((s,d)=>s+d.crit,0);
+  const hoje=new Date();const em7=new Date(+hoje+7*86400000).toISOString().slice(0,10);
+  const tarefasSemana=[];D.forEach(d=>d.tarefas.forEach(t=>{if(t.fim<=em7)tarefasSemana.push({d,t});}));
+  tarefasSemana.sort((a,b)=>a.t.fim<b.t.fim?-1:1);
+  const lucroArrem=arrem.reduce((s,d)=>s+d.lucro,0);
+
+  stats.innerHTML=[
+    kpi('Favoritos',D.length,arrem.length?arrem.length+' arrematado(s)':''),
+    kpi('Leilão em ≤7 dias',urg.length,venc.length?venc.length+' vencido(s)':(semPrazo.length?semPrazo.length+' sem prazo':'')  ,urg.length?'#f1c40f':''),
+    kpi('Liberados p/ lance',lib.length,bloq.length+' bloqueado(s)',lib.length?'#2ecc71':''),
+    kpi('Capital comprometido','R$ '+fmt(capital),comTeto.length+' com teto definido')
+  ].join('');
+
+  const lista=(arr,fn,vazio)=>arr.length?('<div style="display:flex;flex-direction:column;gap:5px">'+arr.map(fn).join('')+'</div>'):`<div class="muted">${vazio}</div>`;
+  let h='<div class="grid2" style="align-items:start">';
+
+  // Prazos
+  h+=`<div class="card"><h4>⏰ Prazos de leilão</h4>`;
+  h+=lista(urg.concat(venc).slice(0,8),d=>`<div class="kv"><span>${linkIm(d)}</span><b class="${d.du<0?'neg':''}">${d.du<0?'vencido':d.du+'d'} · ${fmtDate(d.prazo)}</b></div>`,'Nenhum leilão nos próximos 7 dias.');
+  if(semPrazo.length)h+=`<div class="muted" style="margin-top:8px">⚠ ${semPrazo.length} imóvel(is) de venda online <b>sem prazo preenchido</b> — defina na aba Favoritos.</div>`;
+  h+='</div>';
+
+  // Decisão
+  h+=`<div class="card"><h4>🚦 Decisão</h4>
+    <div class="kv"><span>✅ Liberados para lance</span><b style="color:#5be59a">${lib.length}</b></div>
+    <div class="kv"><span>⛔ Bloqueados (diligência/preço)</span><b class="neg">${bloq.length}</b></div>
+    <div class="kv"><span>💸 Preço acima do lance máximo</span><b class="${acima.length?'neg':''}">${acima.length}</b></div>
+    <div class="kv"><span>📋 Itens críticos em aberto (total)</span><b>${critTot}</b></div>`;
+  if(lib.length)h+='<div class="muted" style="margin-top:8px"><b>Prontos:</b><br>'+lib.slice(0,5).map(d=>linkIm(d)+' — teto R$ '+fmt(d.dec.lance)).join('<br>')+'</div>';
+  h+='</div>';
+
+  // Cronograma da semana
+  h+=`<div class="card"><h4>🗓 Diligência — vence em até 7 dias</h4>`;
+  h+=lista(tarefasSemana.slice(0,8),x=>`<div class="kv"><span>${esc(x.t.item.slice(0,38))}<div class="muted" style="font-size:10.5px">${esc((x.d.r.bairro||'')+', '+(x.d.r.cidade||''))}</div></span><b class="${x.t.fim<hoje.toISOString().slice(0,10)?'neg':''}">${fmtDate(x.t.fim)}</b></div>`,'Nenhuma tarefa com prazo nos próximos 7 dias.');
+  h+='</div>';
+
+  // Resultados
+  h+=`<div class="card"><h4>🏆 Resultados</h4>
+    <div class="kv"><span>Arrematados</span><b style="color:#5be59a">${arrem.length}</b></div>
+    <div class="kv"><span>Perdi a disputa</span><b>${perd.length}</b></div>
+    <div class="kv"><span>Desisti</span><b>${desist.length}</b></div>
+    <div class="kv"><span>Taxa de sucesso</span><b>${disputados?Math.round(100*arrem.length/disputados)+'%':'—'}</b></div>
+    ${arrem.length?`<div class="kv"><span>Lucro líquido projetado</span><b class="${lucroArrem<0?'neg':''}">R$ ${fmt(lucroArrem)}</b></div>`:''}</div>`;
+  h+='</div>';
+
+  // Top oportunidades
+  const top=D.filter(d=>d.res==='Não disputado'||d.res==='Vou disputar').slice().sort((a,b)=>b.roi-a.roi).slice(0,6);
+  h+=`<div class="card" style="margin-top:14px"><h4>⭐ Top oportunidades da carteira (por ROI)</h4>
+    <table class="mono"><thead><tr><th>Imóvel</th><th class="rt">Preço</th><th class="rt">Desc.</th><th class="rt">Lucro líq.</th><th class="rt">ROI</th><th class="rt">Lance máx.</th><th>Farol</th></tr></thead><tbody>`;
+  top.forEach(d=>{const fr=d.dec.fr;h+=`<tr onclick="openDetail('${d.r.id}')" style="cursor:pointer"><td>${esc((d.r.tipo||'')+' · '+(d.r.bairro||'')+', '+(d.r.cidade||''))}</td><td class="rt">${fmt(d.PR)}</td><td class="rt">${(100*(1-d.PR/d.r.aval)).toFixed(1)}%</td><td class="rt ${d.lucro<0?'neg':''}">${fmt(d.lucro)}</td><td class="rt">${pct(d.roi)}</td><td class="rt ${d.dec.folga<0?'neg':''}">${fmt(d.dec.lance)}</td><td><span class="pill ${fr.verd==='VERDE'?'g':fr.verd==='AMARELO'?'y':'r'}">${fr.verd}</span></td></tr>`;});
+  h+='</tbody></table></div>';
+
+  // Gráficos
+  const faixa=countBy(D,d=>{const v=d.PR;return v<100000?'até 100k':v<200000?'100–200k':v<350000?'200–350k':v<500000?'350–500k':'500k+';});
+  h+=`<div class="grid2" style="margin-top:14px">
+    <div class="card">${barChart(countBy(D,d=>d.r.cidade),'Imóveis por cidade','#4f7cff')}</div>
+    <div class="card">${barChart(countBy(D,d=>d.r.modal),'Por modalidade','#9b59b6')}</div>
+    <div class="card">${barChart(faixa,'Faixa de preço','#2ecc71',6)}</div>
+    <div class="card">${barChart(countBy(D,d=>d.res),'Situação na disputa','#e67e22',6)}</div>
+  </div>`;
+  tableWrap.innerHTML=h;finbar.style.display='none';
+}
 function mapRows(){
   const favIds=Object.keys(FIN).filter(k=>FIN[k]);
   const rows=favIds.map(id=>RAW.find(r=>r.id===id)||(FAVMETA[id]&&FAVMETA[id].preco!=null?rowFromMeta(Object.assign({id},FAVMETA[id])):null)).filter(Boolean);
@@ -625,6 +723,7 @@ function recalc(){render();if(modalbg.style.display==='flex')drawModal();if(type
 function render(){const _mainEl=document.querySelector('.main'),_sc=_mainEl?_mainEl.scrollTop:0;const _restore=()=>{if(_mainEl)_mainEl.scrollTop=_sc;};
   const p=P();FILTERED.forEach(r=>{const a=avistaSeries(r,p).slice(-1)[0];r._luc=a.ll;r._roi=calc(r,p).investAvista?a.ll/calc(r,p).investAvista:0;r._far=farol(r,p);r._lance=lanceMax(r,p).lance;});FILTERED.sort((x,y)=>SORT.dir*((x[SORT.k]??-1e18)>(y[SORT.k]??-1e18)?1:-1));
   updateFavTab();updateShareTab();
+  if(VIEW==='painel'){renderPainel();_restore();return;}
   if(VIEW==='map'){renderMapa();return;}
   if(VIEW==='shared'){renderShared();_restore();return;}
   if(VIEW==='fav'){renderFavorites(p);_restore();return;}
