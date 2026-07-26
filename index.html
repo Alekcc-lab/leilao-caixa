@@ -36,7 +36,9 @@
   .stat{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
   .stat b{display:block;font-size:19px;margin-top:2px}
   .statrow{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
-  .modalbg{position:fixed;inset:0;background:rgba(4,8,16,.72);display:none;align-items:flex-start;justify-content:center;z-index:50;overflow:auto;padding:20px}
+  .modalbg{position:fixed;inset:0;background:rgba(4,8,16,.72);display:none;align-items:flex-start;justify-content:center;z-index:1200;overflow:auto;padding:20px}
+  /* o Leaflet usa z-index alto internamente: isolar o mapa para ele não passar por cima do modal */
+  #mapEl{position:relative;z-index:0;isolation:isolate}
   .modal{background:var(--panel);border:1px solid var(--line);border-radius:14px;max-width:1120px;width:100%;padding:20px;margin:auto}
   .modal h2{margin:0 0 2px;font-size:18px}
   .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
@@ -167,7 +169,7 @@
   </main>
 </div>
 <div class="modalbg" id="modalbg"><div class="modal" id="modal"></div></div>
-<div class="modalbg" id="iaImport" style="z-index:60"><div class="modal" style="max-width:720px">
+<div class="modalbg" id="iaImport" style="z-index:1300"><div class="modal" style="max-width:720px">
   <button class="close" onclick="closeIAImport()">✕ Fechar</button>
   <h2>📥 Importar análise da IA</h2>
   <div class="muted" style="margin:4px 0 10px">Cole aqui o <b>JSON</b> que o Claude gerou (a partir do "🤖 Gerar prompt p/ IA"). Preenche o checklist dos imóveis e cria os "Achados da IA". <b>Sobrescreve</b> o que estiver preenchido nos itens retornados.</div>
