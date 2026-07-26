@@ -119,6 +119,7 @@
     <h3>1 · Dados</h3>
     <label>Lista da Caixa (CSV)</label>
     <input type="file" id="file" accept=".csv">
+    <div class="muted" style="margin-top:4px;font-size:11px">⬇ <a href="https://venda-imoveis.caixa.gov.br/sistema/download-lista.asp" target="_blank" rel="noopener">baixar a lista atualizada na Caixa</a></div>
     <div class="muted" id="dataInfo" style="margin-top:6px"></div>
     <h3>2 · Filtros</h3>
     <label>Cidade</label><select id="fCidade" onchange="fillBairros()"><option value="">— carregue o CSV —</option></select>
@@ -467,7 +468,10 @@ function render(){const _mainEl=document.querySelector('.main'),_sc=_mainEl?_mai
   if(VIEW==='fav'){renderFavorites(p);_restore();return;}
   const n=FILTERED.length,avgD=n?FILTERED.reduce((s,r)=>s+r.desc,0)/n:0,best=n?Math.max(...FILTERED.map(r=>r.desc)):0,fin=Object.keys(FIN).filter(k=>FIN[k]).length;
   stats.innerHTML=[['Imóveis',n],['Desconto médio',avgD.toFixed(1)+'%'],['Maior desconto',best.toFixed(1)+'%'],['Favoritos',fin]].map(s=>`<div class="stat">${s[0]}<b>${s[1]}</b></div>`).join('');
-  if(!n){tableWrap.innerHTML='<div class="empty">Nenhum imóvel no filtro.</div>';finbar.style.display='none';return;}
+  if(!n){tableWrap.innerHTML=RAW.length
+      ?'<div class="empty">Nenhum imóvel no filtro.<br><span style="font-size:12px">Afrouxe os filtros (cidade, bairro, valor, tipos, modalidade) ou clique em <b>todos</b> nos checkboxes.</span></div>'
+      :'<div class="empty">Nenhum dado carregado.<br>Baixe a lista em <a href="https://venda-imoveis.caixa.gov.br/sistema/download-lista.asp" target="_blank">download-lista.asp</a> e carregue aqui.</div>';
+    finbar.style.display='none';_restore();return;}
   const cols=[['#',''],['cidade','Cidade'],['tipo','Tipo'],['bairro','Bairro'],['preco','Preço'],['aval','Avaliação'],['desc','Desc.%'],['_luc','Lucro Líq.'],['_roi','ROI'],['_lance','Lance máx.'],['modal','Modalidade'],['fin','Fin.'],['_far','Farol'],['sel','★']];
   let h='<table class="mono"><thead><tr>'+cols.map(c=>`<th onclick="sortBy('${c[0]}')">${c[1]}</th>`).join('')+'</tr></thead><tbody>';
   FILTERED.forEach((r,i)=>{const fc=r._far.verd,acima=r.preco>r._lance;h+=`<tr class="${LASTVIEW===r.id?'viewed':''}" onclick="openDetail('${r.id}')"><td>${i+1}${POV[r.id]?' ⚙':''}</td><td>${r.cidade}</td><td>${r.tipo}</td><td>${r.bairro}</td><td class="rt">${fmt(r.preco)}</td><td class="rt">${fmt(r.aval)}</td><td class="rt"><span class="pill ${r.desc>=45?'g':r.desc>=40?'y':''}">${r.desc.toFixed(1)}%</span></td><td class="rt ${r._luc<0?'neg':''}">${fmt(r._luc)}</td><td class="rt">${pct(r._roi)}</td><td class="rt ${acima?'neg':''}" title="${acima?'arrematação acima do teto':'dentro do teto'}">${fmt(r._lance)}${acima?' ⛔':''}</td><td>${r.modal}</td><td>${r.fin==='Sim'?'<span class="pill g">Sim</span>':'Não'}</td><td><span class="pill ${fc==='VERDE'?'g':fc==='AMARELO'?'y':'r'}">${fc}</span></td><td onclick="event.stopPropagation();toggleFin('${r.id}')">${FIN[r.id]?'⭐':'☆'}</td></tr>`;});
@@ -949,7 +953,7 @@ async function sharedLoad(silent){
       }
     });
     SHARED=novo;
-    if(mudou||!silent){updateShareTab();if(RAW.length&&VIEW!=='all')render();else render();if(modalbg.style.display==='flex'&&window._cur&&SHARED[window._cur.id])drawModal();}
+    if(mudou||!silent){updateShareTab();render();if(modalbg.style.display==='flex'&&window._cur&&SHARED[window._cur.id])drawModal();}
     else updateShareTab();
   }catch(e){if(!silent)console.warn('sharedLoad falhou',e);}
 }
