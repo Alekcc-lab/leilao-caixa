@@ -201,10 +201,10 @@ function debtRows(id){return DEBT[id]||DEBT_TYPES.map(t=>({tipo:t,valor:0,cobert
 function debtBuyer(r){const rows=DEBT[r.id];if(!rows)return null;let s=0;rows.forEach(x=>{if(x.coberto!=='Sim'&&x.status!=='N/A')s+=(+x.valor||0);});return s;}
 function compMarket(r){const rows=COMP[r.id];if(!rows||!rows.length||!r.area)return null;const used=rows.filter(x=>x.usar&&(+x.preco)>0&&(+x.area)>0);if(!used.length)return null;const psm=used.map(x=>(+x.preco)/(+x.area));return (psm.reduce((a,b)=>a+b,0)/psm.length)*r.area;}
 function refTotal(r){const rf=REF[r.id];if(!rf)return null;const v={Leve:+rf.leve,'Médio':+rf.medio,Pesado:+rf.pesado}[rf.sel||'Médio'];return isNaN(v)?null:v;}
-function EPof(r){const base=Object.assign({},P(),POV[r.id]||{});
+function EPof(r){const ov=POV[r.id]||{};const base=Object.assign({},P(),ov);
   if(base.vendaAbs==null&&base.mercado==null){const mv=compMarket(r);if(mv!=null)base.mercado=mv;}
   const db=debtBuyer(r);if(db!=null)base.debitos=db;
-  const rf=refTotal(r);if(rf!=null)base.reformaTot=rf;
+  const rf=refTotal(r);if(rf!=null&&ov.reforma==null)base.reformaTot=rf;   // premissa manual do imóvel vence a aba Reforma
   return base;}
 function EP(){return EPof(window._cur);}
 function loadLS(k,d){try{return JSON.parse(localStorage.getItem(k))||d}catch(e){return d}}
@@ -509,7 +509,7 @@ function tabResumo(){const r=window._cur,p=EP();const av=avistaSeries(r,p).slice
      ${farSel(r,'oc','Ocupação',OCC)}${farSel(r,'cs','Conservação',CONS)}${farSel(r,'lq','Liquidez',LIQ)}${farSel(r,'rj','Risco jurídico',RISCO)}${farSel(r,'cap','Capital garantido?',['Sim','Não'])}</div></div>
   </div>${aiAchadosCard(r)}`;}
 function tabCalc(){const r=window._cur,p=EP(),c=calc(r,p);
-  return `<div class="grid2"><div class="card"><h4>Custos de aquisição</h4>${kv('Comissão do leiloeiro ('+(c.leilo*100).toFixed(1)+'%)','R$ '+fmt(c.PR*c.leilo))}${kv('ITBI ('+(p.itbi*100)+'%)','R$ '+fmt(c.PR*p.itbi))}${kv('Registro','R$ '+fmt(p.registro))}${kv('Advogado/desocupação','R$ '+fmt(c.tp.desoc))}${kv('Reforma/outros','R$ '+fmt(c.tp.reforma))}${kv('Subtotal aquisição','R$ '+fmt(c.custosAq))}${kv('+ Arrematação','R$ '+fmt(r.preco))}${kv('= Investimento à vista','R$ '+fmt(c.investAvista))}</div>
+  return `<div class="grid2"><div class="card"><h4>Custos de aquisição</h4>${kv('Comissão do leiloeiro ('+(c.leilo*100).toFixed(1)+'%)','R$ '+fmt(c.PR*c.leilo))}${kv('ITBI ('+(p.itbi*100)+'%)','R$ '+fmt(c.PR*p.itbi))}${kv('Registro','R$ '+fmt(p.registro))}${kv('Advogado/desocupação','R$ '+fmt(c.tp.desoc))}${kv('Reforma/outros','R$ '+fmt(c.tp.reforma))}${p.debitos?kv('Débitos assumidos (aba Débitos)','R$ '+fmt(p.debitos)):''}${kv('Subtotal aquisição','R$ '+fmt(c.custosAq))}${kv('+ Arrematação','R$ '+fmt(r.preco))}${kv('= Investimento à vista','R$ '+fmt(c.investAvista))}</div>
    <div class="card"><h4>Venda e financiamento</h4>${kv('Carrego mensal (cond+IPTU)','R$ '+fmt(c.carregoMes))}${kv('Venda considerada','R$ '+fmt(c.vv))}${kv('Comissão corretor ('+(p.corretor*100)+'%)','R$ '+fmt(c.corr))}${kv('Valor real de venda','R$ '+fmt(c.vrv))}${kv('Entrada ('+(p.entrada*100)+'%)','R$ '+fmt(c.entrada))}${kv('Valor financiado (PV)','R$ '+fmt(c.PV))}${kv('Desembolso inicial (fin.)','R$ '+fmt(c.desembInicial))}${kv('Taxa de juros mensal',(c.im*100).toFixed(4)+'%')}</div></div>
    <div class="muted" style="margin-top:8px">Regras por tipo aplicadas automaticamente: ${c.tp.terreno?'Terreno (sem condomínio/reforma/desocupação).':c.tp.casa?'Casa (sem condomínio).':'Apartamento (com condomínio).'}</div>`;}
 function tabAvista(){const r=window._cur,p=EP(),s=avistaSeries(r,p);
@@ -640,13 +640,15 @@ function setCkField(id,i,field,v){CKST[id]=CKST[id]||{};CKST[id][i]=CKST[id][i]|
 function togglePrem(){window._premOpen=!window._premOpen;drawModal();}
 function premEditor(r,p){
   const ov=POV[r.id]||{},has=Object.keys(ov).length,open=!!window._premOpen;
-  const F=(lbl,field,val,step)=>`<div><label style="margin:0 0 2px">${lbl}${ov[field]!=null?' •':''}</label><input type="number" step="${step||'any'}" value="${val}" onchange="setPov('${field}',this.value)"></div>`;
+  const F=(lbl,field,val,step,src)=>`<div><label style="margin:0 0 2px" ${src?`title="vem da ${src} — editar aqui sobrepõe"`:''}>${lbl}${ov[field]!=null?' •':(src?' <span style="color:#7fa2ff">↩</span>':'')}</label><input type="number" step="${step||'any'}" value="${val}" onchange="setPov('${field}',this.value)"></div>`;
+  const srcVenda=(ov.vendaAbs==null&&p.mercado!=null)?'aba Comparáveis':null;
+  const refEfetiva=tipoParams(r.tipo,p).reforma, srcRef=(ov.reforma==null&&p.reformaTot!=null)?'aba Reforma':null;
   const head=`<h4 style="margin:0;display:flex;align-items:center;gap:8px;cursor:pointer" onclick="togglePrem()"><span style="width:12px">${open?'▾':'▸'}</span>⚙ Premissas deste imóvel ${has?'<span class="pill y">editado</span>':'<span class="muted" style="font-weight:400">'+(open?'(edite para simular só este imóvel)':'(clique para ajustar)')+'</span>'}<button class="ghost" style="padding:2px 8px;font-size:11px;margin-left:auto" onclick="event.stopPropagation();resetPov()">↺ Restaurar globais</button></h4>`;
   if(!open)return `<div class="card" style="margin:10px 0 4px;padding:10px 12px">${head}</div>`;
   return `<div class="card" style="margin:10px 0 4px">${head}
    <div class="premgrid">
    ${F('Arrematação R$','preco',Math.round(p.preco!=null?p.preco:r.preco))}
-   ${F('Venda R$','vendaAbs',Math.round(venda(r,p)))}
+   ${F('Venda R$','vendaAbs',Math.round(venda(r,p)),null,srcVenda)}
    ${F('Prazo venda (m)','prazoVenda',p.prazoVenda)}
    ${F('Juros a.a. %','juros',(p.juros*100).toFixed(2))}
    ${F('Entrada %','entrada',+(p.entrada*100).toFixed(2))}
@@ -656,11 +658,12 @@ function premEditor(r,p){
    ${F('Imposto %','imposto',+(p.imposto*100).toFixed(2))}
    ${F('Prazo fin. (m)','prazo',p.prazo)}
    ${F('Registro R$','registro',p.registro)}
-   ${F('Reforma R$','reforma',p.reforma)}
+   ${F('Reforma R$','reforma',Math.round(refEfetiva),null,srcRef)}
    ${F('Condomínio/mês','cond',p.cond)}
    ${F('IPTU/mês','iptu',p.iptu)}
    ${F('Desocup. R$','desoc',p.desoc)}
-   </div></div>`;
+   </div>${p.debitos?`<div class="muted" style="margin-top:8px">💰 <b>Débitos assumidos: R$ ${fmt(p.debitos)}</b> — vêm da aba Débitos e já entram no investimento (edite lá).</div>`:''}
+   <div class="muted" style="margin-top:6px;font-size:11px">• = editado por você neste imóvel · <span style="color:#7fa2ff">↩</span> = calculado a partir de outra aba (digite aqui para sobrepor)</div></div>`;
 }
 function setPov(field,raw){const r=window._cur;const pctF=['juros','entrada','itbi','corretor','imposto','leiloeiro'];let v=parseFloat((''+raw).replace(',','.'));if(isNaN(v)){return;}if(pctF.includes(field))v=v/100;POV[r.id]=POV[r.id]||{};POV[r.id][field]=v;saveLS('prem_over',POV);drawModal();render();}
 function resetPov(){const r=window._cur;delete POV[r.id];saveLS('prem_over',POV);drawModal();render();}
@@ -676,17 +679,26 @@ function promptIA(){
   const ck=checklist(rows[0],EPof(rows[0]));
   const keysDoc=ck.filter(c=>/^(edital|matricula|certidoes|ocupacao|debito)/.test(c.chave));
   let t='Você é um analista de leilão de imóveis. Para cada imóvel abaixo, leia a MATRÍCULA e o EDITAL (abra os links; se não conseguir abrir algum, me avise para eu anexar o PDF) e devolva SOMENTE um JSON no formato do final, sem nenhum texto fora do JSON.\n\n';
-  t+='REGRAS:\n- "status" permitido: "OK", "Pendente", "Problema", "N/A".\n- Em "evidencia": cite onde viu, curto (ex.: "Av.7/2022 da matrícula", "cláusula 4 do edital"). NÃO transcreva CPF, nomes completos ou dados pessoais.\n- Preencha só o que os DOCUMENTOS permitirem concluir; omita o resto.\n- Use "Problema" quando houver ônus/penhora/restrição não resolvida; "OK" quando conferido e limpo.\n- Em "origem": identifique a base legal/motivo do leilão a partir do edital/matrícula (consolidação fiduciária = extrajudicial; penhora/execução = judicial; etc.). Se judicial/penhora, preencha também os itens juridico_*.\n- Em "achados_extras": coisas relevantes que não cabem nos itens (ex.: usufruto, cláusula de reversão, indisponibilidade, ITBI/condomínio destoante).\n\n';
+  t+='REGRAS:\n- "status" permitido: "OK", "Pendente", "Problema", "N/A".\n- Em "evidencia": cite onde viu, curto (ex.: "Av.7/2022 da matrícula", "cláusula 4 do edital"). NÃO transcreva CPF, nomes completos ou dados pessoais.\n- Preencha só o que os DOCUMENTOS permitirem concluir; omita o resto.\n- Use "Problema" quando houver ônus/penhora/restrição não resolvida; "OK" quando conferido e limpo.\n- Em "origem": identifique a base legal/motivo do leilão a partir do edital/matrícula (consolidação fiduciária = extrajudicial; penhora/execução = judicial; etc.). Se judicial/penhora, preencha também os itens juridico_*.\n- Em "debitos": SEMPRE que encontrar valores de IPTU/condomínio/água/luz em atraso, informe o VALOR NUMÉRICO (sem R$ nem pontos: 8226.10). "coberto" = "Sim" se o edital/anúncio diz que a Caixa paga, "Não" se é do comprador, "A confirmar" se depende do anúncio.\n- Em "comparaveis": imóveis semelhantes que você encontrou, com preço e área numéricos (servem para calcular o valor de mercado por m²).\n- Em "reforma": estimativas de custo total nos 3 cenários, se der para inferir do estado do imóvel.\n- Em "achados_extras": coisas relevantes que não cabem nos itens (ex.: usufruto, cláusula de reversão, indisponibilidade, ITBI/condomínio destoante).\n\n';
   t+='CHAVES do checklist (use exatamente em "chave"):\n';
   keysDoc.forEach(c=>{t+='- '+c.chave+': '+c.cat+' — '+c.item+'\n';});
   t+='- juridico_processo: Jurídico — Processo: número, vara e fase (SÓ se judicial/penhora)\n- juridico_intimacao: Jurídico — Intimação do executado (SÓ se judicial/penhora)\n- juridico_recursos: Jurídico — Recursos/embargos/anulatórias (SÓ se judicial/penhora)\n- juridico_certidoes: Jurídico — Certidões do executado (SÓ se judicial/penhora)\n';
   t+='\nIMÓVEIS:\n';
   rows.forEach((r,i)=>{t+=(i+1)+') id='+r.id+' — '+r.tipo+', '+r.bairro+', '+r.cidade+'\n   Matrícula: https://venda-imoveis.caixa.gov.br/editais/matricula/'+r.uf+'/'+r.id+'.pdf\n   Detalhe/edital: '+r.link+'\n';});
-  t+='\nFORMATO DE SAÍDA (responda só isto):\n{\n  "imoveis": [\n    { "id": "<id>",\n      "origem": "Extrajudicial - fiduciária/financiamento | Judicial | Penhora | Herança/inventário | Dação em pagamento | Outro",\n      "checklist": [ {"chave":"matricula_onus","status":"Problema","evidencia":"...","obs":"..."} ],\n      "achados_extras": [ {"titulo":"...","detalhe":"...","relevancia":"alta|média|baixa"} ],\n      "resumo": "1-2 frases"\n    }\n  ]\n}\n';
+  t+='\nFORMATO DE SAÍDA (responda só isto):\n{\n  "imoveis": [\n    { "id": "<id>",\n      "origem": "Extrajudicial - fiduciária/financiamento | Judicial | Penhora | Herança/inventário | Dação em pagamento | Outro",\n      "checklist": [ {"chave":"matricula_onus","status":"Problema","evidencia":"...","obs":"..."} ],\n      "debitos": [ {"tipo":"IPTU vencido","valor":8226.10,"coberto":"A confirmar","status":"Problema","obs":"..."} ],\n      "comparaveis": [ {"preco":235000,"area":44.56,"usar":true,"fonte":"..."} ],\n      "reforma": {"leve":5000,"medio":15000,"pesado":30000,"cenario":"Médio"},\n      "achados_extras": [ {"titulo":"...","detalhe":"...","relevancia":"alta|média|baixa"} ],\n      "resumo": "1-2 frases"\n    }\n  ]\n}\n';
   copyText(t,'Prompt copiado! Cole numa conversa com o Claude. Depois traga o JSON de volta em "📥 Importar análise IA".');
 }
 function openIAImport(){document.getElementById('iaText').value='';document.getElementById('iaImport').style.display='flex';}
 function closeIAImport(){document.getElementById('iaImport').style.display='none';}
+function matchDebtType(s){s=(''+s).toLowerCase();
+  if(/iptu/.test(s))return 'IPTU vencido';
+  if(/multa/.test(s))return 'Multas condominiais';
+  if(/condom/.test(s))return 'Condomínio vencido';
+  if(/[áa]gua|saneamento|sabesp/.test(s))return 'Água';
+  if(/energia|luz|el[ée]tric/.test(s))return 'Energia';
+  if(/g[áa]s/.test(s))return 'Gás';
+  if(/custa|[ôo]nus|baixa|cart[óo]rio/.test(s))return 'Custas p/ baixa de ônus';
+  return 'Outros';}
 function extractJSON(t){t=(t||'').trim();const a=t.indexOf('{'),b=t.lastIndexOf('}');return (a>=0&&b>a)?t.slice(a,b+1):t;}
 function importIA(){
   const raw=document.getElementById('iaText').value;
@@ -694,7 +706,7 @@ function importIA(){
   const arr=data.imoveis||data['imóveis']||(Array.isArray(data)?data:[data]);
   if(!Array.isArray(arr)||!arr.length){alert('JSON sem lista de imóveis.');return;}
   const VALID=['OK','Pendente','Problema','N/A'];
-  let okN=0,notFound=[],itens=0,extras=0;
+  let okN=0,notFound=[],itens=0,extras=0,debN=0,compN=0,refN=0;
   arr.forEach(im=>{const id=(''+(im.id||'')).trim();if(!id)return;
     const r=RAW.find(x=>x.id===id)||(FAVMETA[id]&&FAVMETA[id].preco!=null?rowFromMeta(FAVMETA[id]):null);
     if(!r){notFound.push(id);return;}
@@ -706,13 +718,36 @@ function importIA(){
       if(f.evidencia!=null||f.evid!=null)CKST[id][i].evid=(f.evidencia||f.evid||'');
       if(f.obs!=null)CKST[id][i].obs=f.obs;
       CKST[id][i].ai=true;itens++;});
+    // débitos → aba Débitos (entram no investimento e reduzem o Lance Máximo)
+    if(Array.isArray(im.debitos)&&im.debitos.length){
+      const rows=debtRows(id).map(x=>({...x}));
+      im.debitos.forEach(d=>{const t=matchDebtType(d.tipo);const i=rows.findIndex(x=>x.tipo===t);if(i<0)return;
+        const v=parseFloat((''+(d.valor!=null?d.valor:0)).replace(/[^\d.,-]/g,'').replace(/\.(?=\d{3}\b)/g,'').replace(',','.'));
+        if(!isNaN(v))rows[i].valor=v;
+        if(d.coberto)rows[i].coberto=(/^s/i.test(d.coberto)?'Sim':/^n/i.test(d.coberto)?'Não':'A confirmar');
+        if(d.status&&VALID.includes(d.status))rows[i].status=d.status;
+        rows[i].ai=true;debN++;});
+      DEBT[id]=rows;
+    }
+    // comparáveis → aba Comparáveis (definem o valor de mercado)
+    if(Array.isArray(im.comparaveis)&&im.comparaveis.length){
+      const cs=im.comparaveis.map(c=>({preco:+c.preco||0,area:+c.area||0,usar:c.usar!==false})).filter(c=>c.preco>0&&c.area>0);
+      if(cs.length){COMP[id]=cs;compN+=cs.length;}
+    }
+    // reforma → aba Reforma (3 cenários)
+    if(im.reforma&&typeof im.reforma==='object'){
+      const rf=Object.assign({sel:'Médio'},REF[id]||{});
+      ['leve','medio','pesado'].forEach(k=>{const v=+im.reforma[k];if(!isNaN(v)&&v>0)rf[k]=v;});
+      const cn=im.reforma.cenario||im.reforma.sel;if(cn&&/leve|m[ée]dio|pesado/i.test(cn))rf.sel=/leve/i.test(cn)?'Leve':/pesado/i.test(cn)?'Pesado':'Médio';
+      REF[id]=rf;refN++;
+    }
     const ax=AIX[id]||{};
     if(im.resumo)ax.resumo=im.resumo;
     if(Array.isArray(im.achados_extras))ax.achados=(ax.achados||[]).concat(im.achados_extras.map(x=>({titulo:x.titulo||'',detalhe:x.detalhe||'',relevancia:(x.relevancia||'').toLowerCase()})));
     if(im.resumo||im.achados_extras){AIX[id]=ax;extras+=(im.achados_extras||[]).length;}
     okN++;});
-  saveLS('ck_state',CKST);saveLS('aix',AIX);saveLS('origem',ORIGEM);render();if(modalbg.style.display==='flex')drawModal();closeIAImport();
-  alert('Importado: '+okN+' imóvel(is), '+itens+' item(ns) do checklist, '+extras+' achado(s).'+(notFound.length?(' Não encontrei (favorite/carregue o CSV): '+notFound.join(', ')):''));
+  saveLS('ck_state',CKST);saveLS('aix',AIX);saveLS('origem',ORIGEM);saveLS('debt',DEBT);saveLS('comp',COMP);saveLS('ref',REF);render();if(modalbg.style.display==='flex')drawModal();closeIAImport();
+  alert('Importado: '+okN+' imóvel(is)\n• '+itens+' item(ns) do checklist\n• '+debN+' débito(s)\n• '+compN+' comparável(is)\n• '+refN+' orçamento(s) de reforma\n• '+extras+' achado(s)'+(notFound.length?('\n\nNão encontrei (favorite/carregue o CSV): '+notFound.join(', ')):''));
 }
 function ensureAix(id){AIX[id]=AIX[id]||{};AIX[id].achados=AIX[id].achados||[];return AIX[id];}
 function setAix(id,i,f,v){const ax=ensureAix(id);ax.achados[i]=Object.assign({},ax.achados[i]);ax.achados[i][f]=v;saveLS('aix',AIX);}
