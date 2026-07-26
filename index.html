@@ -363,10 +363,13 @@ function painelData(){
     const p=EPof(r),dec=decisao(r,p),l=lanceOf(r.id),meta=FAVMETA[r.id]||{};
     const ck=checklist(r,p);
     const crit=ck.filter(c=>c.crit==='Crítico'&&(c.status==='Pendente'||c.status==='Problema')).length;
+    const st={OK:0,Pendente:0,Problema:0,'N/A':0};ck.forEach(c=>{st[c.status]=(st[c.status]||0)+1;});
+    st.total=ck.length;st.resolvidos=st.OK+st['N/A'];st.pct=st.total?Math.round(100*st.resolvidos/st.total):0;
+    st.bloq=ck.filter(c=>c.bloqueia&&(c.status==='Pendente'||c.status==='Problema')).length;
     const tarefas=ck.filter(c=>c.dataFim&&c.status!=='OK'&&c.status!=='N/A').map(c=>({item:c.item,fim:c.dataFim}));
     tarefas.sort((a,b)=>a.fim<b.fim?-1:1);
     const c=calc(r,p),av=avistaSeries(r,p).slice(-1)[0];
-    return {r,p,dec,l,meta,prazo:meta.prazo||'',du:daysUntil(meta.prazo||''),crit,tarefas,
+    return {r,p,dec,l,meta,prazo:meta.prazo||'',du:daysUntil(meta.prazo||''),crit,tarefas,st,
       roi:c.investAvista?av.ll/c.investAvista:0,lucro:av.ll,PR:(p.preco!=null?p.preco:r.preco),
       online:isOnlineSale(r.modal),res:(l.resultado||'Não disputado'),
       teto:(l.teto===''||l.teto==null)?null:+l.teto};
@@ -444,6 +447,20 @@ function renderPainel(){
     <table class="mono"><thead><tr><th>Imóvel</th><th class="rt">Preço</th><th class="rt">Desc.</th><th class="rt">Lucro líq.</th><th class="rt">ROI</th><th class="rt">Lance máx.</th><th>Farol</th></tr></thead><tbody>`;
   top.forEach(d=>{const fr=d.dec.fr;h+=`<tr onclick="openDetail('${d.r.id}')" style="cursor:pointer"><td>${esc((d.r.tipo||'')+' · '+(d.r.bairro||'')+', '+(d.r.cidade||''))}</td><td class="rt">${fmt(d.PR)}</td><td class="rt">${(100*(1-d.PR/d.r.aval)).toFixed(1)}%</td><td class="rt ${d.lucro<0?'neg':''}">${fmt(d.lucro)}</td><td class="rt">${pct(d.roi)}</td><td class="rt ${d.dec.folga<0?'neg':''}">${fmt(d.dec.lance)}</td><td><span class="pill ${fr.verd==='VERDE'?'g':fr.verd==='AMARELO'?'y':'r'}">${fr.verd}</span></td></tr>`;});
   h+='</tbody></table></div>';
+
+  // Progresso da diligência por imóvel
+  const ordenado=D.slice().sort((a,b)=>(b.st.Problema-a.st.Problema)||(a.st.pct-b.st.pct));
+  h+=`<div class="card" style="margin-top:14px"><h4>📋 Diligência por imóvel</h4>
+    <table class="mono"><thead><tr><th>Imóvel</th><th class="rt">✅ OK</th><th class="rt">⏳ Pendente</th><th class="rt">⛔ Problema</th><th class="rt">N/A</th><th class="rt">🔒 Bloqueios</th><th>Progresso</th></tr></thead><tbody>`;
+  ordenado.forEach(d=>{const st=d.st;const cor=st.pct>=100?'#2ecc71':st.pct>=50?'#f1c40f':'#e74c3c';
+    h+=`<tr onclick="openDetail('${d.r.id}')" style="cursor:pointer"><td>${esc((d.r.tipo||'')+' · '+(d.r.bairro||'')+', '+(d.r.cidade||''))}</td>
+      <td class="rt" style="color:#5be59a">${st.OK}</td><td class="rt" style="color:#f4d35e">${st.Pendente}</td>
+      <td class="rt ${st.Problema?'neg':''}">${st.Problema}</td><td class="rt muted">${st['N/A']}</td>
+      <td class="rt ${st.bloq?'neg':''}">${st.bloq||'—'}</td>
+      <td style="min-width:150px"><div style="display:flex;align-items:center;gap:7px"><div style="flex:1;height:7px;background:#243150;border-radius:4px;overflow:hidden"><div style="width:${st.pct}%;height:100%;background:${cor}"></div></div><span style="font-size:11px;color:${cor};font-weight:700">${st.pct}%</span></div></td></tr>`;});
+  const tot={OK:0,Pendente:0,Problema:0,'N/A':0};D.forEach(d=>['OK','Pendente','Problema','N/A'].forEach(k=>tot[k]+=d.st[k]));
+  h+=`</tbody><tfoot><tr style="border-top:2px solid var(--line)"><td><b>Total da carteira</b></td><td class="rt" style="color:#5be59a"><b>${tot.OK}</b></td><td class="rt" style="color:#f4d35e"><b>${tot.Pendente}</b></td><td class="rt ${tot.Problema?'neg':''}"><b>${tot.Problema}</b></td><td class="rt muted"><b>${tot['N/A']}</b></td><td colspan="2"></td></tr></tfoot></table>
+    <div class="muted" style="margin-top:6px;font-size:11px">Progresso = (OK + N/A) ÷ total de itens. Ordenado por problemas e menor progresso — comece por cima.</div></div>`;
 
   // Gráficos
   const faixa=countBy(D,d=>{const v=d.PR;return v<100000?'até 100k':v<200000?'100–200k':v<350000?'200–350k':v<500000?'350–500k':'500k+';});
