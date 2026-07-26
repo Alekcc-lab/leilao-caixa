@@ -359,12 +359,14 @@ function renderMapa(){
   const semGeo=rows.filter(r=>!posOf(r));
   const aprox=comGeo.filter(r=>posOf(r).aprox).length;
   const semExata=rows.filter(r=>!(GEO[r.id]&&GEO[r.id].lat!=null)).length;
+  const falhas=semGeo.length;
   stats.innerHTML=[['No mapa',comGeo.length],['Sem localização',semGeo.length],['Aproximados',aprox],['Favoritos',Object.keys(FIN).filter(k=>FIN[k]).length]].map(s=>`<div class="stat">${s[0]}<b>${s[1]}</b></div>`).join('');
   if(!document.getElementById('mapEl')){
     tableWrap.innerHTML=`<div class="muted" style="margin-bottom:6px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
       <label class="chk" style="margin:0"><input type="checkbox" ${window._mapAll?'checked':''} onchange="window._mapAll=this.checked;window._mapFit=false;window._geoAuto=false;renderMapa()" style="width:auto"> <b>modo triagem</b>: incluir os imóveis filtrados</label>
       <button id="btnGeoB" class="ghost" style="padding:4px 10px;font-size:12px" onclick="geocodeBairros(mapRows(),'btnGeoB')" title="1 consulta por bairro — rápido para triagem">🏙 Localizar por bairro (rápido)</button>
       <button id="btnGeo" class="ghost" style="padding:4px 10px;font-size:12px" onclick="geocodeList(mapRows(),'btnGeo')" title="1 consulta por imóvel — preciso, porém lento">🎯 Endereço exato (${semExata})</button>
+      ${falhas?`<button class="ghost" style="padding:4px 10px;font-size:12px" onclick="retryGeo()">↻ Tentar de novo (${falhas} sem localização)</button>`:''}
       <span>Clique no pino para <b>favoritar</b> ou abrir a análise.</span></div>
       <div id="mapEl" style="height:calc(100vh - 300px);min-height:380px;border-radius:10px;overflow:hidden;border:1px solid var(--line)"></div>`;
     _map=null;_mapLayer=null;finbar.style.display='none';
@@ -416,6 +418,15 @@ function renderMapa(){
   }
 }
 function closeMapPopup(){if(_map)_map.closePopup();}
+function retryGeo(){
+  if(_geoBusy){alert('Aguarde a localização em andamento terminar.');return;}
+  let n=0;
+  Object.keys(GEOB).forEach(k=>{if(GEOB[k]&&GEOB[k].falhou){delete GEOB[k];n++;}});
+  Object.keys(GEO).forEach(k=>{if(GEO[k]&&GEO[k].falhou){delete GEO[k];n++;}});
+  saveLS('geob',GEOB);saveLS('geo',GEO);
+  window._geoAuto=false;
+  geocodeBairros(mapRows(),'btnGeoB');
+}
 function toggleFinMapa(id){FIN[id]=!FIN[id];
   if(FIN[id]){const row=RAW.find(r=>r.id===id);if(row){const snap=snapFromRow(row,window._dg||'');snap.prevPreco=null;snap.firstDg=window._dg||'';snap.prazo=(FAVMETA[id]&&FAVMETA[id].prazo)||'';FAVMETA[id]=snap;}}else{delete FAVMETA[id];}
   saveLS('fav_meta',FAVMETA);saveLS('fin_sel',FIN);
