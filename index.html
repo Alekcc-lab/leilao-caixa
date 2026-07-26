@@ -178,7 +178,12 @@
 <script src="config.js"></script>
 <script>
 let RAW=[], FILTERED=[], SORT={k:'desc',dir:-1};
-const FIN=loadLS('fin_sel',{}), CKST=loadLS('ck_state',{}), FAR=loadLS('far_state',{}), POV=loadLS('prem_over',{}), FAVMETA=loadLS('fav_meta',{}), DEBT=loadLS('debt',{}), COMP=loadLS('comp',{}), REF=loadLS('ref',{}), CEN=loadLS('cen',{}), AIX=loadLS('aix',{}), ORIGEM=loadLS('origem',{});
+const FIN=loadLS('fin_sel',{}), CKST=loadLS('ck_state',{}), FAR=loadLS('far_state',{}), POV=loadLS('prem_over',{}), FAVMETA=loadLS('fav_meta',{}), DEBT=loadLS('debt',{}), COMP=loadLS('comp',{}), REF=loadLS('ref',{}), CEN=loadLS('cen',{}), AIX=loadLS('aix',{}), ORIGEM=loadLS('origem',{}), LANCE=loadLS('lance',{});
+const RESULTADOS=['Não disputado','Vou disputar','Arrematado','Perdi a disputa','Desisti'];
+function lanceOf(id){return LANCE[id]||{};}
+function setLance(id,f,v){const l=Object.assign({},LANCE[id]);
+  if(f==='teto'||f==='dado'){const n=parseFloat((''+v).replace(/\./g,'').replace(',','.'));l[f]=isNaN(n)?'':n;}else l[f]=v;
+  LANCE[id]=l;saveLS('lance',LANCE);render();if(modalbg.style.display==='flex')drawModal();}
 const ORIGEM_TIPOS=['Extrajudicial - fiduciária/financiamento','Judicial','Penhora','Herança/inventário','Dação em pagamento','Outro / A confirmar'];
 const ORIGEM_RISCO={'Extrajudicial - fiduciária/financiamento':'Consolidação da propriedade pela Caixa. Risco principal: ocupação/desocupação. Processo mais previsível.','Judicial':'Há processo judicial — confira fase, intimação do executado e recursos (itens jurídicos ativados no checklist). Risco de anulação/atraso.','Penhora':'Bem penhorado — verifique a baixa da penhora e a origem da dívida (itens jurídicos ativados no checklist).','Herança/inventário':'Cadeia dominial e herdeiros — conferir inventário/partilha e eventuais direitos.','Dação em pagamento':'Imóvel dado em pagamento de dívida — conferir origem e ônus remanescentes.','Outro / A confirmar':'Confirme a base legal no edital e na matrícula.'};
 function origemGuess(r){return 'Extrajudicial - fiduciária/financiamento';}  // lista da Caixa é quase toda retomada extrajudicial
@@ -189,9 +194,9 @@ function matchOrigem(s){s=(''+s).toLowerCase();if(/extra|fiduc|9\.?514|consolida
 let VIEW='all', IASEL={}, SHARED={}, _sharePush={}, _shareTimer=null, _sharePoll=null, LASTVIEW=null;
 // dossiê = tudo que você produziu sobre um imóvel (o que se compartilha)
 function collectDossie(id){const d={};const put=(k,v)=>{if(v!==undefined&&v!==null)d[k]=v;};
-  put('ck',CKST[id]);put('far',FAR[id]);put('pov',POV[id]);put('meta',FAVMETA[id]);put('debt',DEBT[id]);put('comp',COMP[id]);put('ref',REF[id]);put('cen',CEN[id]);put('aix',AIX[id]);put('origem',ORIGEM[id]);return d;}
+  put('ck',CKST[id]);put('far',FAR[id]);put('pov',POV[id]);put('meta',FAVMETA[id]);put('debt',DEBT[id]);put('comp',COMP[id]);put('ref',REF[id]);put('cen',CEN[id]);put('aix',AIX[id]);put('origem',ORIGEM[id]);put('lance',LANCE[id]);return d;}
 function applyDossie(id,d){if(!d)return;const set=(m,k)=>{if(d[k]!==undefined)m[id]=d[k];};
-  set(CKST,'ck');set(FAR,'far');set(POV,'pov');set(FAVMETA,'meta');set(DEBT,'debt');set(COMP,'comp');set(REF,'ref');set(CEN,'cen');set(AIX,'aix');set(ORIGEM,'origem');}
+  set(CKST,'ck');set(FAR,'far');set(POV,'pov');set(FAVMETA,'meta');set(DEBT,'debt');set(COMP,'comp');set(REF,'ref');set(CEN,'cen');set(AIX,'aix');set(ORIGEM,'origem');set(LANCE,'lance');}
 function isShared(id){return !!SHARED[id];}
 function sharedRowFor(id){const s=SHARED[id];if(!s)return null;const m=s.data&&s.data.meta;return m&&m.preco!=null?rowFromMeta(Object.assign({id},m)):null;}
 function ago(ts){if(!ts)return '';const d=Math.floor((Date.now()-new Date(ts))/60000);if(d<1)return 'agora';if(d<60)return d+' min';const h=Math.floor(d/60);if(h<24)return h+'h';return Math.floor(h/24)+'d';}
@@ -208,6 +213,8 @@ function EPof(r){const ov=POV[r.id]||{};const base=Object.assign({},P(),ov);
   if(base.vendaAbs==null&&base.mercado==null){const mv=compMarket(r);if(mv!=null)base.mercado=mv;}
   const db=debtBuyer(r);if(db!=null)base.debitos=db;
   const rf=refTotal(r);if(rf!=null&&ov.reforma==null)base.reformaTot=rf;   // premissa manual do imóvel vence a aba Reforma
+  const l=LANCE[r.id];                                                      // arrematou? o lance dado vira o preço
+  if(l&&l.resultado==='Arrematado'&&l.dado&&ov.preco==null)base.preco=+l.dado;
   return base;}
 function EP(){return EPof(window._cur);}
 function loadLS(k,d){try{return JSON.parse(localStorage.getItem(k))||d}catch(e){return d}}
@@ -246,7 +253,7 @@ function renderFavorites(p){
   const urg=online.filter(x=>{const du=daysUntil(x.meta.prazo);return du!=null&&du<=3;}).length;
   stats.innerHTML=[['Favoritos',items.length],['Fora da lista',fora],['Online s/ prazo',semPrazo],['Prazo urgente/vencido',urg]].map(s=>`<div class="stat">${s[0]}<b>${s[1]}</b></div>`).join('');
   if(!items.length){tableWrap.innerHTML='<div class="empty">Nenhum favorito ainda.<br>Vá em <b>Todos</b> e marque imóveis com ★.</div>';finbar.style.display='none';return;}
-  const cols=['★','IA','🤝','Status','Cidade','Tipo','Bairro','Preço','Desc.%','Modalidade','Prazo leilão','Lance máx.','Farol','Abrir'];
+  const cols=['★','IA','🤝','Status','Cidade','Tipo','Bairro','Preço','Desc.%','Modalidade','Prazo leilão','Lance máx.','Meu teto','Farol','Abrir'];
   let h='<div class="muted" style="margin-bottom:6px">Coluna <b>IA</b>: marque quais imóveis entram no "🤖 Gerar prompt p/ IA" (já analisados vêm com 🤖 e desmarcados). <a href="#" onclick="setAllIA(true);return false">todos</a> · <a href="#" onclick="setAllIA(false);return false">nenhum</a></div><table class="mono"><thead><tr>'+cols.map(c=>`<th>${c}</th>`).join('')+'</tr></thead><tbody>';
   items.forEach(x=>{
     const d=x.data,on=isOnlineSale(d.modal);
@@ -255,8 +262,11 @@ function renderFavorites(p){
     const status=x.present?'<span class="pill g">Na lista</span>':'<span class="pill r">Fora da lista</span>'+(x.meta.lastDg?`<div class="muted" style="font-size:10px">visto ${x.meta.lastDg}</div>`:'');
     const prazoCell=on?`<input type="date" value="${x.meta.prazo||''}" onclick="event.stopPropagation()" onchange="setPrazo('${x.id}',this.value)">`+prazoStatus(x.meta.prazo):'<span class="muted">—</span>';
     let farolCell='<span class="muted">—</span>',lanceCell='<span class="muted">—</span>';
+    const _l=lanceOf(x.id),_teto=(_l.teto===''||_l.teto==null)?null:+_l.teto,_lm=x.present?Math.round(lanceMax(x.row,EPof(x.row)).lance):null;
+    let tetoCell=_teto!=null?((_lm!=null&&_teto>_lm)?`<span class="neg">${fmt(_teto)} ⛔</span>`:fmt(_teto)):'<span class="muted">—</span>';
+    if(_l.resultado&&_l.resultado!=='Não disputado')tetoCell+=`<div style="font-size:10px" class="muted">${esc(_l.resultado)}</div>`;
     if(x.present){const dec=decisao(x.row,EPof(x.row)),fr=dec.fr;farolCell=`<span class="pill ${fr.verd==='VERDE'?'g':fr.verd==='AMARELO'?'y':'r'}">${fr.verd}</span>`;lanceCell=`<span class="${dec.folga<0?'neg':''}">${fmt(dec.lance)}</span>${dec.folga<0?' ⛔':''}`;}
-    h+=`<tr class="${LASTVIEW===x.id?'viewed':''}" onclick="openDetail('${x.id}')"><td onclick="event.stopPropagation();toggleFin('${x.id}')" style="cursor:pointer">⭐</td><td onclick="event.stopPropagation()"><input type="checkbox" ${iaSelected(x.id)?'checked':''} onchange="toggleIASel('${x.id}',this.checked)" style="width:auto" title="incluir no prompt da IA">${isAnalyzed(x.id)?' <span title="já analisado pela IA">🤖</span>':''}</td><td onclick="event.stopPropagation()" style="cursor:pointer">${isShared(x.id)?`<span title="compartilhado com o grupo — editado por ${esc((SHARED[x.id].updated_by_email||'').split('@')[0])} há ${ago(SHARED[x.id].updated_at)}" onclick="setView('shared')">🤝</span>`:`<span title="compartilhar com o grupo" onclick="shareProp('${x.id}')" style="opacity:.45">🤝</span>`}</td><td>${status}</td><td>${d.cidade||'—'}</td><td>${d.tipo||'—'}</td><td>${d.bairro||'—'}</td><td class="rt">${precoCell}</td><td class="rt">${d.desc!=null?(+d.desc).toFixed(1):'—'}%</td><td>${d.modal||'—'}</td><td>${prazoCell}</td><td class="rt">${lanceCell}</td><td>${farolCell}</td><td>🔍</td></tr>`;
+    h+=`<tr class="${LASTVIEW===x.id?'viewed':''}" onclick="openDetail('${x.id}')"><td onclick="event.stopPropagation();toggleFin('${x.id}')" style="cursor:pointer">⭐</td><td onclick="event.stopPropagation()"><input type="checkbox" ${iaSelected(x.id)?'checked':''} onchange="toggleIASel('${x.id}',this.checked)" style="width:auto" title="incluir no prompt da IA">${isAnalyzed(x.id)?' <span title="já analisado pela IA">🤖</span>':''}</td><td onclick="event.stopPropagation()" style="cursor:pointer">${isShared(x.id)?`<span title="compartilhado com o grupo — editado por ${esc((SHARED[x.id].updated_by_email||'').split('@')[0])} há ${ago(SHARED[x.id].updated_at)}" onclick="setView('shared')">🤝</span>`:`<span title="compartilhar com o grupo" onclick="shareProp('${x.id}')" style="opacity:.45">🤝</span>`}</td><td>${status}</td><td>${d.cidade||'—'}</td><td>${d.tipo||'—'}</td><td>${d.bairro||'—'}</td><td class="rt">${precoCell}</td><td class="rt">${d.desc!=null?(+d.desc).toFixed(1):'—'}%</td><td>${d.modal||'—'}</td><td>${prazoCell}</td><td class="rt">${lanceCell}</td><td class="rt">${tetoCell}</td><td>${farolCell}</td><td>🔍</td></tr>`;
   });
   h+='</tbody></table>';tableWrap.innerHTML=h;finbar.style.display='flex';finCount.textContent=items.length;
 }
@@ -502,7 +512,7 @@ function drawModal(){
   modal.innerHTML=b;
 }
 function tabResumo(){const r=window._cur,p=EP();const av=avistaSeries(r,p).slice(-1)[0],pr=finSaleSeries(r,p,'PRICE').out.slice(-1)[0],sc=finSaleSeries(r,p,'SAC').out.slice(-1)[0];const c=calc(r,p);const fr=farol(r,p);
-  return `${origemCard(r)}<div class="grid3">
+  return `${lanceCard(r,p)}${origemCard(r)}<div class="grid3">
    <div class="card"><h4>Dados</h4>${kv('Arrematação','R$ '+fmt(r.preco))}${kv('Avaliação','R$ '+fmt(r.aval))}${kv('Venda considerada','R$ '+fmt(c.vv)+' ('+(c.vv/r.aval*100).toFixed(0)+'% da aval.)')}${kv('Desconto Caixa',(100*(1-r.preco/r.aval)).toFixed(1)+'%')}${kv('Área priv.',(r.area||'—')+' m²')}${kv('Modalidade',r.modal)}${kv('Financiável',r.fin)}</div>
    <div class="card"><h4>Resultado (venda em ${p.prazoVenda} m)</h4><table class="mono"><tr><th></th><th class="rt">À Vista</th><th class="rt">PRICE</th><th class="rt">SAC</th></tr>
      <tr><td>Lucro líq.</td><td class="rt ${av.ll<0?'neg':''}">${fmt(av.ll)}</td><td class="rt ${pr.ll<0?'neg':''}">${fmt(pr.ll)}</td><td class="rt ${sc.ll<0?'neg':''}">${fmt(sc.ll)}</td></tr>
@@ -780,6 +790,28 @@ function origemCard(r){const tipo=origemOf(r),nota=(ORIGEM[r.id]&&ORIGEM[r.id].n
    +'<select onchange="setOrigem(\''+r.id+'\',\'tipo\',this.value)" style="max-width:340px">'+ORIGEM_TIPOS.map(o=>'<option '+(o===tipo?'selected':'')+'>'+o+'</option>').join('')+'</select>'
    +'<input placeholder="Base legal, nº do processo, observação..." value="'+esc(nota)+'" onchange="setOrigem(\''+r.id+'\',\'nota\',this.value)" style="flex:1;min-width:200px">'
    +'</div><div class="muted" style="margin-top:6px">'+risco+(origemManual(r)?'':' <span class="pill" style="background:rgba(241,196,15,.16);color:#f4d35e">palpite pela modalidade — confirme</span>')+'</div></div>';}
+function lanceCard(r,p){
+  const l=lanceOf(r.id), lm=Math.round(lanceMax(r,p).lance), PR=(p.preco!=null?p.preco:r.preco);
+  const teto=(l.teto===''||l.teto==null)?null:+l.teto, dado=(l.dado===''||l.dado==null)?null:+l.dado;
+  const acima=teto!=null&&teto>lm, res=l.resultado||'Não disputado';
+  const sug=Math.max(0,Math.round(lm*0.9));
+  let aviso='';
+  if(acima)aviso=`<div class="pill r" style="display:inline-block;margin-top:8px">⛔ Seu teto está R$ ${fmt(teto-lm)} ACIMA do máximo calculado — abaixo disso você queima sua margem.</div>`;
+  else if(teto!=null)aviso=`<div class="muted" style="margin-top:8px">✅ Teto dentro do limite — folga de R$ ${fmt(lm-teto)} até o máximo calculado.</div>`;
+  else aviso=`<div class="muted" style="margin-top:8px">Defina seu teto antes da disputa. Sugestão conservadora (90% do máximo): <a href="#" onclick="setLance('${r.id}','teto',${sug});return false">R$ ${fmt(sug)}</a></div>`;
+  const cor=res==='Arrematado'?'g':res==='Perdi a disputa'||res==='Desisti'?'r':res==='Vou disputar'?'y':'';
+  return `<div class="card" style="margin-bottom:14px"><h4>🎯 Meu lance</h4>
+   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;align-items:end">
+     <div><label style="margin:0 0 2px">Máximo calculado</label><div style="font-size:17px;font-weight:700;padding:6px 0">R$ ${fmt(lm)}</div></div>
+     <div><label style="margin:0 0 2px">Meu teto (comprometido)</label><input type="number" value="${teto!=null?teto:''}" placeholder="quanto vou levar" onchange="setLance('${r.id}','teto',this.value)" style="${acima?'border-color:var(--red)':''}"></div>
+     <div><label style="margin:0 0 2px">Lance que dei</label><input type="number" value="${dado!=null?dado:''}" placeholder="—" onchange="setLance('${r.id}','dado',this.value)"></div>
+     <div><label style="margin:0 0 2px">Data do lance</label><input type="date" value="${esc(l.data||'')}" onchange="setLance('${r.id}','data',this.value)"></div>
+     <div><label style="margin:0 0 2px">Resultado</label><select onchange="setLance('${r.id}','resultado',this.value)">${RESULTADOS.map(o=>`<option ${o===res?'selected':''}>${o}</option>`).join('')}</select></div>
+   </div>
+   ${aviso}
+   ${res==='Arrematado'&&dado?`<div class="pill g" style="display:inline-block;margin-top:8px">🏆 Arrematado por R$ ${fmt(dado)} — os cálculos deste imóvel passam a usar esse valor.${dado>lm?' (acima do máximo calculado)':''}</div>`:''}
+   <input placeholder="Observação (estratégia, concorrência, incremento...)" value="${esc(l.obs||'')}" onchange="setLance('${r.id}','obs',this.value)" style="margin-top:8px">
+   <div class="muted" style="margin-top:6px;font-size:11px">Preço atual de arrematação/mínimo: R$ ${fmt(PR)} ${res!=='Não disputado'?'· <span class="pill '+cor+'">'+esc(res)+'</span>':''}</div></div>`;}
 function setOrigem(id,f,v){ORIGEM[id]=Object.assign({},ORIGEM[id]);ORIGEM[id][f]=v;saveLS('origem',ORIGEM);render();if(modalbg.style.display==='flex')drawModal();}
 
 // ---- export: preenche o modelo profissional (.xlsx) por finalista ----
@@ -798,8 +830,9 @@ function fillModelo(wb,r,p){
   if(r.area!=null)setCell(ent,'B8',r.area);
   setCell(ent,'D8','Área privativa da lista Caixa (confirmar na matrícula)');
   setCell(ent,'B10',CEN[r.id]||'Base');
+  const _l=lanceOf(r.id);
   setCell(ent,'B14',(p.preco!=null?p.preco:r.preco));
-  setCell(ent,'D14','Lista Caixa '+(window._dg||''));
+  setCell(ent,'D14','Lista Caixa '+(window._dg||'')+(_l.resultado==='Arrematado'&&_l.dado?(' · ARREMATADO por R$ '+fmt(_l.dado)+(_l.data?(' em '+fmtDate(_l.data)):'')):(_l.teto?(' · meu teto: R$ '+fmt(_l.teto)):'')));
   setCell(ent,'B15',c.leilo); setCell(ent,'B16',p.itbi); setCell(ent,'B17',p.registro);
   setCell(ent,'B18',p.desoc); setCell(ent,'B20',p.cond); setCell(ent,'B21',p.iptu);
   setCell(ent,'B25',p.prazoVenda); setCell(ent,'B26',p.corretor); setCell(ent,'B28',p.imposto); setCell(ent,'B29',p.tma);
@@ -865,17 +898,17 @@ const GLOBAL_INPUTS=['pVendaPct','pPrazoVenda','pJuros','pEntrada','pItbi','pCor
 function collectState(){
   const globals={};
   GLOBAL_INPUTS.forEach(id=>{const el=document.getElementById(id);if(el)globals[id]=el.value;});
-  return {v:6,fin:FIN,ck:CKST,far:FAR,pov:POV,favmeta:FAVMETA,debt:DEBT,comp:COMP,ref:REF,cen:CEN,aix:AIX,origem:ORIGEM,globals};
+  return {v:7,fin:FIN,ck:CKST,far:FAR,pov:POV,favmeta:FAVMETA,debt:DEBT,comp:COMP,ref:REF,cen:CEN,aix:AIX,origem:ORIGEM,lance:LANCE,globals};
 }
 function hydrateState(d){
   if(!d||typeof d!=='object')return;
   HYDRATING=true;
   try{
     const repl=(obj,src)=>{Object.keys(obj).forEach(k=>delete obj[k]);if(src&&typeof src==='object')Object.assign(obj,src);};
-    repl(FIN,d.fin);repl(CKST,d.ck);repl(FAR,d.far);repl(POV,d.pov);repl(FAVMETA,d.favmeta);repl(DEBT,d.debt);repl(COMP,d.comp);repl(REF,d.ref);repl(CEN,d.cen);repl(AIX,d.aix);repl(ORIGEM,d.origem);
+    repl(FIN,d.fin);repl(CKST,d.ck);repl(FAR,d.far);repl(POV,d.pov);repl(FAVMETA,d.favmeta);repl(DEBT,d.debt);repl(COMP,d.comp);repl(REF,d.ref);repl(CEN,d.cen);repl(AIX,d.aix);repl(ORIGEM,d.origem);repl(LANCE,d.lance);
     if(d.globals)Object.keys(d.globals).forEach(id=>{const el=document.getElementById(id);if(el&&d.globals[id]!=null&&(id!=='fCidade'||[...el.options].some(o=>o.value===d.globals[id])))el.value=d.globals[id];});
     // grava localmente sem disparar cloudSave
-    try{localStorage.setItem('fin_sel',JSON.stringify(FIN));localStorage.setItem('ck_state',JSON.stringify(CKST));localStorage.setItem('far_state',JSON.stringify(FAR));localStorage.setItem('prem_over',JSON.stringify(POV));localStorage.setItem('fav_meta',JSON.stringify(FAVMETA));localStorage.setItem('debt',JSON.stringify(DEBT));localStorage.setItem('comp',JSON.stringify(COMP));localStorage.setItem('ref',JSON.stringify(REF));localStorage.setItem('cen',JSON.stringify(CEN));localStorage.setItem('aix',JSON.stringify(AIX));localStorage.setItem('origem',JSON.stringify(ORIGEM));}catch(e){}
+    try{localStorage.setItem('fin_sel',JSON.stringify(FIN));localStorage.setItem('ck_state',JSON.stringify(CKST));localStorage.setItem('far_state',JSON.stringify(FAR));localStorage.setItem('prem_over',JSON.stringify(POV));localStorage.setItem('fav_meta',JSON.stringify(FAVMETA));localStorage.setItem('debt',JSON.stringify(DEBT));localStorage.setItem('comp',JSON.stringify(COMP));localStorage.setItem('ref',JSON.stringify(REF));localStorage.setItem('cen',JSON.stringify(CEN));localStorage.setItem('aix',JSON.stringify(AIX));localStorage.setItem('origem',JSON.stringify(ORIGEM));localStorage.setItem('lance',JSON.stringify(LANCE));}catch(e){}
   }finally{HYDRATING=false;}
   updateFavTab();if(RAW.length)applyFilters();else if(VIEW==='fav')render();
 }
@@ -898,7 +931,7 @@ async function cloudLoad(){
   }catch(e){console.warn('cloudLoad falhou',e);}
   _loaded=true;
   await sharedLoad(true); startSharedPoll();
-  if(!hadCloud){const local=Object.keys(FIN).length+Object.keys(CKST).length+Object.keys(FAR).length+Object.keys(POV).length+Object.keys(FAVMETA).length+Object.keys(DEBT).length+Object.keys(COMP).length+Object.keys(REF).length+Object.keys(CEN).length+Object.keys(AIX).length+Object.keys(ORIGEM).length;if(local)cloudSave();}
+  if(!hadCloud){const local=Object.keys(FIN).length+Object.keys(CKST).length+Object.keys(FAR).length+Object.keys(POV).length+Object.keys(FAVMETA).length+Object.keys(DEBT).length+Object.keys(COMP).length+Object.keys(REF).length+Object.keys(CEN).length+Object.keys(AIX).length+Object.keys(ORIGEM).length+Object.keys(LANCE).length;if(local)cloudSave();}
 }
 // ---------- compartilhamento colaborativo ----------
 async function sharedLoad(silent){
@@ -955,7 +988,7 @@ function copyShared(id){
   const s=SHARED[id];if(!s)return;
   applyDossie(id,s.data);FIN[id]=true;
   ['ck_state','far_state','prem_over','fav_meta','fin_sel','debt','comp','ref','cen','aix','origem'].forEach(()=>{});
-  saveLS('ck_state',CKST);saveLS('far_state',FAR);saveLS('prem_over',POV);saveLS('fav_meta',FAVMETA);saveLS('fin_sel',FIN);saveLS('debt',DEBT);saveLS('comp',COMP);saveLS('ref',REF);saveLS('cen',CEN);saveLS('aix',AIX);saveLS('origem',ORIGEM);
+  saveLS('ck_state',CKST);saveLS('far_state',FAR);saveLS('prem_over',POV);saveLS('fav_meta',FAVMETA);saveLS('fin_sel',FIN);saveLS('debt',DEBT);saveLS('comp',COMP);saveLS('ref',REF);saveLS('cen',CEN);saveLS('aix',AIX);saveLS('origem',ORIGEM);saveLS('lance',LANCE);
   render();alert('Copiado para os seus favoritos.');
 }
 function updateShareTab(){const n=Object.keys(SHARED).length;const b=document.querySelector('#viewTabs [data-v="shared"]');if(b)b.textContent='🤝 Compartilhados ('+n+')';}
