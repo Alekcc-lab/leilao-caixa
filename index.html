@@ -178,6 +178,17 @@
   </main>
 </div>
 <div class="modalbg" id="modalbg"><div class="modal" id="modal"></div></div>
+<div class="modalbg" id="expSel" style="z-index:1300"><div class="modal" style="max-width:640px">
+  <button class="close" onclick="closeExportSel()">✕ Fechar</button>
+  <h2>📊 Exportar planilha (modelo)</h2>
+  <div class="muted" style="margin:4px 0 10px">Escolha quais imóveis exportar. Cada um vira um arquivo <b>.xlsx</b> com as 11 abas do seu modelo preenchidas.
+    <span style="display:block;margin-top:4px"><a href="#" onclick="setAllExp(true);return false">todos</a> · <a href="#" onclick="setAllExp(false);return false">nenhum</a></span></div>
+  <div id="expLista" style="max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:8px"></div>
+  <div style="display:flex;gap:10px;margin-top:12px;align-items:center">
+    <button onclick="confirmExport()" id="expBtn">Exportar selecionados</button>
+    <button class="ghost" onclick="closeExportSel()">Cancelar</button>
+  </div>
+</div></div>
 <div class="modalbg" id="iaImport" style="z-index:1300"><div class="modal" style="max-width:720px">
   <button class="close" onclick="closeIAImport()">✕ Fechar</button>
   <h2>📥 Importar análise da IA</h2>
@@ -352,7 +363,7 @@ function renderFinbar(){
   const marcados=Object.keys(FIN).filter(k=>FIN[k]&&iaSelected(k)).length;
   const naLista=SUB.fav==='lista';
   bar.innerHTML=`<b>${n}</b><span class="muted">favoritos</span>
-    <button onclick="exportModelo()">📊 Exportar planilha (modelo)</button>
+    <button onclick="openExportSel()">📊 Exportar planilha (modelo)</button>
     <button class="ghost" onclick="promptIA()">🤖 Gerar prompt IA (${marcados} marcado${marcados===1?'':'s'})</button>
     <button class="ghost" onclick="openIAImport()">📥 Importar análise IA</button>
     <button class="ghost" onclick="clearFin()">Limpar favoritos</button>
@@ -1341,12 +1352,34 @@ function fillModelo(wb,r,p){
   if(dash){const pend=ck.filter(it=>it.bloqueia&&(it.status==='Pendente'||it.status==='Problema')).slice(0,5);
     for(let k=0;k<5;k++)setCell(dash,'A'+(27+k), pend[k]?((k+1)+'. '+pend[k].cat+' — '+pend[k].item):'');}
 }
-async function exportModelo(){
+function expRows(){return favRows().filter(r=>RAW.some(x=>x.id===r.id));}
+function openExportSel(){
+  const rows=expRows();
+  if(!rows.length){alert('Nenhum favorito na lista atual para exportar. Carregue o CSV que os contenha ou marque imóveis com ★.');return;}
+  document.getElementById('expLista').innerHTML=rows.map(r=>{
+    const nome=(AIX[r.id]&&AIX[r.id].nome)||((r.tipo||'')+' · '+(r.bairro||'')+', '+(r.cidade||''));
+    const p=EPof(r),dec=decisao(r,p),PR=(p.preco!=null?p.preco:r.preco);
+    return `<label class="chk" style="padding:5px 2px;border-bottom:1px solid #223051"><input type="checkbox" class="expck" value="${r.id}" checked style="width:auto">
+      <span style="flex:1">${esc(nome)} <span class="muted">· R$ ${fmt(PR)}</span></span>
+      <span class="pill ${dec.liberado?'g':'r'}" style="font-size:10px">${dec.liberado?'liberado':'bloqueado'}</span></label>`;}).join('');
+  atualizaExpBtn();
+  document.getElementById('expLista').onchange=atualizaExpBtn;
+  document.getElementById('expSel').style.display='flex';
+}
+function atualizaExpBtn(){const n=document.querySelectorAll('.expck:checked').length;const b=document.getElementById('expBtn');if(b)b.textContent='Exportar '+n+' selecionado'+(n===1?'':'s');}
+function setAllExp(v){document.querySelectorAll('.expck').forEach(c=>c.checked=v);atualizaExpBtn();}
+function closeExportSel(){document.getElementById('expSel').style.display='none';}
+function confirmExport(){
+  const ids=[...document.querySelectorAll('.expck:checked')].map(c=>c.value);
+  if(!ids.length){alert('Selecione ao menos um imóvel.');return;}
+  closeExportSel();
+  exportModelo(expRows().filter(r=>ids.includes(r.id)));
+}
+async function exportModelo(lista){
   if(typeof ExcelJS==='undefined'){alert('A biblioteca de planilha ainda está carregando. Tente novamente em alguns segundos.');return;}
-  const ids=Object.keys(FIN).filter(k=>FIN[k]);
-  const present=ids.map(id=>RAW.find(r=>r.id===id)).filter(Boolean);
-  const absent=ids.length-present.length;
-  if(!present.length){alert('Nenhum finalista na lista atual para exportar.'+(absent?' Carregue o CSV que contenha seus favoritos.':' Marque imóveis com ★.'));return;}
+  const present=(lista&&lista.length)?lista:expRows();
+  const absent=0;
+  if(!present.length){alert('Nenhum imóvel para exportar.');return;}
   let buf;
   try{const resp=await fetch('assets/modelo.xlsx');if(!resp.ok)throw 0;buf=await resp.arrayBuffer();}
   catch(e){alert('Não consegui carregar a planilha-modelo (assets/modelo.xlsx).');return;}
