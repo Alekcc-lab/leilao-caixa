@@ -359,6 +359,42 @@ function renderFavorites(p){
   h+='</tbody></table>';tableWrap.innerHTML=h;finbar.style.display='flex';finCount.textContent=items.length;
 }
 
+// ---------- Score de oportunidade e ranking da carteira ----------
+function oportunidadeScore(r,p){
+  const c=calc(r,p),av=avistaSeries(r,p).slice(-1)[0];
+  const roi=c.investAvista?av.ll/c.investAvista:0;
+  const PR=(p.preco!=null?p.preco:r.preco);
+  const lm=lanceMax(r,p).lance, folga=PR>0?(lm-PR)/PR:0;
+  const descVenda=c.vv>0?1-PR/c.vv:0;
+  const ck=checklist(r,p);
+  const prog=ck.length?ck.filter(x=>x.status==='OK'||x.status==='N/A').length/ck.length:0;
+  const bloq=ck.filter(x=>x.bloqueia&&(x.status==='Pendente'||x.status==='Problema')).length;
+  const probl=ck.filter(x=>x.status==='Problema').length;
+  const comps=((COMP[r.id]||[]).filter(x=>x.usar&&+x.preco>0&&+x.area>0)).length;
+  const pRet=roi>=.40?35:roi>=.30?28:roi>=.20?20:roi>=.12?12:roi>=.05?5:0;
+  const pFol=folga>=.25?25:folga>=.15?20:folga>=.05?12:folga>0?6:0;
+  const pDes=descVenda>=.45?15:descVenda>=.35?12:descVenda>=.25?8:descVenda>=.15?4:0;
+  const pDil=Math.round(prog*15);
+  const pMer=comps>=5?10:comps>=3?6:0;
+  const pen=probl*3;
+  const score=Math.max(0,Math.min(100,pRet+pFol+pDes+pDil+pMer-pen));
+  return {score,roi,folga,descVenda,prog,bloq,probl,comps,lucro:av.ll,lance:lm,PR,
+    partes:{Retorno:pRet,Folga:pFol,Desconto:pDes,Diligência:pDil,Mercado:pMer,Problemas:-pen}};
+}
+function rankingCarteira(){
+  const arr=favRows().map(r=>{const p=EPof(r);return {r,p,o:oportunidadeScore(r,p)};});
+  arr.sort((a,b)=>b.o.score-a.o.score||b.o.roi-a.o.roi);
+  arr.forEach((x,i)=>x.pos=i+1);
+  return arr;
+}
+function posNoRanking(id){const rk=rankingCarteira();const i=rk.findIndex(x=>x.r.id===id);return i<0?null:{pos:i+1,total:rk.length,o:rk[i].o};}
+function rankBadge(r){
+  if(!FIN[r.id])return '';
+  const x=posNoRanking(r.id);if(!x)return '';
+  const cor=x.pos===1?'g':x.pos<=Math.ceil(x.total/2)?'y':'';
+  const det=Object.entries(x.o.partes).filter(([,v])=>v).map(([k,v])=>k+' '+(v>0?'+':'')+v).join(' · ');
+  return `<span class="pill ${cor}" title="Score ${x.o.score}/100 — ${det}">🏅 #${x.pos} de ${x.total} na sua carteira · ${x.o.score}/100</span>`;
+}
 // ---------- Painel da carteira ----------
 function painelData(){
   return favRows().map(r=>{
@@ -444,10 +480,18 @@ function renderPainel(){
   h+='</div>';
 
   // Top oportunidades
-  const top=D.filter(d=>d.res==='Não disputado'||d.res==='Vou disputar').slice().sort((a,b)=>b.roi-a.roi).slice(0,6);
-  h+=`<div class="card" style="margin-top:14px"><h4>⭐ Top oportunidades da carteira (por ROI)</h4>
-    <table class="mono"><thead><tr><th>Imóvel</th><th class="rt">Preço</th><th class="rt">Desc.</th><th class="rt">Lucro líq.</th><th class="rt">ROI</th><th class="rt">Lance máx.</th><th>Farol</th></tr></thead><tbody>`;
-  top.forEach(d=>{const fr=d.dec.fr;h+=`<tr onclick="openDetail('${d.r.id}')" style="cursor:pointer"><td>${esc((d.r.tipo||'')+' · '+(d.r.bairro||'')+', '+(d.r.cidade||''))}</td><td class="rt">${fmt(d.PR)}</td><td class="rt">${(100*(1-d.PR/d.r.aval)).toFixed(1)}%</td><td class="rt ${d.lucro<0?'neg':''}">${fmt(d.lucro)}</td><td class="rt">${pct(d.roi)}</td><td class="rt ${d.dec.folga<0?'neg':''}">${fmt(d.dec.lance)}</td><td><span class="pill ${fr.verd==='VERDE'?'g':fr.verd==='AMARELO'?'y':'r'}">${fr.verd}</span></td></tr>`;});
+  const rk=rankingCarteira();
+  h+=`<div class="card" style="margin-top:14px"><h4>🏅 Ranking de oportunidade da carteira</h4>
+    <div class="muted" style="margin-bottom:8px;font-size:11.5px">Score 0–100 = <b>retorno</b> (35) + <b>folga até o lance máximo</b> (25) + <b>desconto real</b> (15) + <b>diligência concluída</b> (15) + <b>comparáveis</b> (10) − problemas. Atualiza sozinho conforme você ajusta premissas e avança na diligência.</div>
+    <table class="mono"><thead><tr><th>#</th><th>Imóvel</th><th class="rt">Score</th><th class="rt">ROI</th><th class="rt">Folga</th><th class="rt">Desc. real</th><th class="rt">Diligência</th><th class="rt">Comps</th><th>Situação</th></tr></thead><tbody>`;
+  rk.forEach(x=>{const o=x.o,fr=farol(x.r,x.p);const cor=o.score>=70?'#5be59a':o.score>=45?'#f4d35e':'#ff8b7d';
+    h+=`<tr onclick="openDetail('${x.r.id}')" style="cursor:pointer" title="${Object.entries(o.partes).filter(([,v])=>v).map(([k,v])=>k+' '+(v>0?'+':'')+v).join(' · ')}">
+      <td><b>${x.pos}º</b></td><td>${esc((x.r.tipo||'')+' · '+(x.r.bairro||'')+', '+(x.r.cidade||''))}${(AIX[x.r.id]&&AIX[x.r.id].ranking)?` <span class="muted" style="font-size:10px">(IA: #${AIX[x.r.id].ranking.pos})</span>`:''}</td>
+      <td class="rt"><b style="color:${cor}">${o.score}</b></td><td class="rt">${pct(o.roi)}</td>
+      <td class="rt ${o.folga<0?'neg':''}">${(o.folga*100).toFixed(0)}%</td><td class="rt">${(o.descVenda*100).toFixed(0)}%</td>
+      <td class="rt">${Math.round(o.prog*100)}%${o.bloq?` <span class="neg" title="itens que bloqueiam">🔒${o.bloq}</span>`:''}</td>
+      <td class="rt ${o.comps>=5?'':'muted'}">${o.comps}</td>
+      <td><span class="pill ${fr.verd==='VERDE'?'g':fr.verd==='AMARELO'?'y':'r'}">${fr.verd}</span></td></tr>`;});
   h+='</tbody></table></div>';
 
   // Progresso da diligência por imóvel
@@ -796,7 +840,7 @@ function drawModal(){
   const r=window._cur,p=EP();const c=calc(r,p),fr=farol(r,p);
   let b=`<button class="close" onclick="closeModal()">✕ Fechar</button>
   <button class="close" style="margin-right:8px;${FIN[r.id]?'background:rgba(241,196,15,.18);color:#f4d35e':''}" onclick="toggleFinDetail('${r.id}')" title="${FIN[r.id]?'remover dos favoritos':'adicionar aos favoritos'}">${FIN[r.id]?'⭐ Favorito':'☆ Favoritar'}</button>
-  <h2>${r.tipo} · ${r.bairro} <span class="badge">${r.cidade}</span> <span class="pill ${fr.verd==='VERDE'?'g':fr.verd==='AMARELO'?'y':'r'}" id="farolPill">${fr.verd} · ${fr.score}</span></h2>
+  <h2>${r.tipo} · ${r.bairro} <span class="badge">${r.cidade}</span> <span class="pill ${fr.verd==='VERDE'?'g':fr.verd==='AMARELO'?'y':'r'}" id="farolPill">${fr.verd} · ${fr.score}</span> ${rankBadge(r)}</h2>
   <div class="muted">${r.endereco} · <a href="${r.link}" target="_blank">ver na Caixa ↗</a> · matrícula: <a href="https://venda-imoveis.caixa.gov.br/editais/matricula/${r.uf}/${r.id}.pdf" target="_blank">PDF ↗</a> · <a href="${gmapsUrl(r)}" target="_blank" rel="noopener">🗺 Google Maps ↗</a>${(GEO[r.id]&&GEO[r.id].lat!=null)?` · <span class="muted">📍 no mapa${GEO[r.id].aprox?' (aprox.)':''}</span>`:` · <a href="#" onclick="setGeoManual('${r.id}',prompt('Cole a coordenada (lat, long) — copie do Google Maps clicando com o botão direito no ponto:',''));return false;">📍 definir coordenada</a>`}</div>
   ${r._absent?`<div class="pill r" style="display:inline-block;margin:6px 0">⚠ Fora da lista atual — dados de ${(FAVMETA[r.id]&&FAVMETA[r.id].lastDg)||'?'}. Pode ter sido vendido/leiloado.</div>`:''}
   ${isOnlineSale(r.modal)?`<div class="muted" style="margin:6px 0">⏳ Prazo do leilão: <input type="datetime-local" value="${prazoInput((FAVMETA[r.id]||{}).prazo)}" onchange="setPrazo('${r.id}',this.value)">${prazoStatus((FAVMETA[r.id]||{}).prazo)}${FIN[r.id]?'':' <span class="muted">— favorite ★ para acompanhar o prazo</span>'}</div>`:''}
@@ -996,7 +1040,13 @@ function premEditor(r,p){
    </div>${p.debitos?`<div class="muted" style="margin-top:8px">💰 <b>Débitos assumidos: R$ ${fmt(p.debitos)}</b> — vêm da aba Débitos e já entram no investimento (edite lá).</div>`:''}
    <div class="muted" style="margin-top:6px;font-size:11px">• = editado por você neste imóvel · <span style="color:#7fa2ff">↩</span> = calculado a partir de outra aba (digite aqui para sobrepor)</div></div>`;
 }
-function setPov(field,raw){const r=window._cur;const pctF=['juros','entrada','itbi','corretor','imposto','leiloeiro'];let v=parseFloat((''+raw).replace(',','.'));if(isNaN(v)){return;}if(pctF.includes(field))v=v/100;POV[r.id]=POV[r.id]||{};POV[r.id][field]=v;saveLS('prem_over',POV);drawModal();render();}
+function setPov(field,raw){const r=window._cur;const pctF=['juros','entrada','itbi','corretor','imposto','leiloeiro'];
+  const txt=(''+raw).trim();
+  if(txt===''){                                   // campo apagado = remove a sobreposição e volta ao automático
+    if(POV[r.id]){delete POV[r.id][field];if(!Object.keys(POV[r.id]).length)delete POV[r.id];}
+    saveLS('prem_over',POV);drawModal();render();return;}
+  let v=parseFloat(txt.replace(',','.'));if(isNaN(v))return;
+  if(pctF.includes(field))v=v/100;POV[r.id]=POV[r.id]||{};POV[r.id][field]=v;saveLS('prem_over',POV);drawModal();render();}
 function resetPov(){const r=window._cur;delete POV[r.id];saveLS('prem_over',POV);drawModal();render();}
 
 function exportFinalists(){const ids=Object.keys(FIN).filter(k=>FIN[k]);const rows=RAW.filter(r=>ids.includes(r.id));if(!rows.length){alert('Selecione finalistas com a ★.');return;}let t='FINALISTAS PARA LEITURA DE MATRÍCULA (Claude):\n\n';rows.forEach((r,i)=>{t+=`${i+1}. ${r.tipo} — ${r.bairro}, ${r.cidade}\n   ${r.endereco}\n   Detalhe: ${r.link}\n   Matrícula: https://venda-imoveis.caixa.gov.br/editais/matricula/${r.uf}/${r.id}.pdf\n\n`;});t+='Peça: "leia as matrículas e atualize o checklist (ônus, consolidação, restrições) — sem transcrever dados pessoais".';navigator.clipboard.writeText(t).then(()=>alert('Copiado! Cole na conversa com o Claude.')).catch(()=>{const w=window.open('','_blank');w.document.write('<pre>'+t.replace(/</g,'&lt;')+'</pre>');});}
