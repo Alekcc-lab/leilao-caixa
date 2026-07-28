@@ -266,6 +266,8 @@ function origemOf(r){const o=ORIGEM[r.id];return (o&&o.tipo)?o.tipo:origemGuess(
 function origemManual(r){return !!(ORIGEM[r.id]&&ORIGEM[r.id].tipo);}
 function isJudicial(r){const o=origemOf(r);return o==='Judicial'||o==='Penhora';}
 function matchOrigem(s){s=(''+s).toLowerCase();if(/extra|fiduc|9\.?514|consolida/.test(s))return 'Extrajudicial - fiduciária/financiamento';if(/penhora/.test(s))return 'Penhora';if(/judicial|execu[çc]/.test(s))return 'Judicial';if(/heran|invent/.test(s))return 'Herança/inventário';if(/da[çc][ãa]o/.test(s))return 'Dação em pagamento';return 'Outro / A confirmar';}
+let CKF='todos';
+function setCkF(v){CKF=v;drawModal();}
 let VIEW='all', IASEL={}, SHARED={}, _sharePush={}, _shareTimer=null, _sharePoll=null, LASTVIEW=null;
 // dossiê = tudo que você produziu sobre um imóvel (o que se compartilha)
 function collectDossie(id){const d={};const put=(k,v)=>{if(v!==undefined&&v!==null)d[k]=v;};
@@ -903,7 +905,9 @@ function tabComp(){const r=window._cur;const rows=COMP[r.id]||[];
       <td class="rt"><input type="number" value="${+x.area||0}" onchange="setComp('${r.id}',${i},'area',this.value)" style="width:80px;text-align:right"></td>
       <td class="rt">${ps?fmt(ps):'—'}</td><td><input type="checkbox" ${x.usar?'checked':''} onchange="setComp('${r.id}',${i},'usar',this.checked)" style="width:auto"></td>
       <td><button class="ghost" style="padding:2px 8px" onclick="delComp('${r.id}',${i})">✕</button></td></tr>`;});
-  return b+`</tbody></table><button class="ghost" style="margin-top:8px" onclick="addComp('${r.id}')">+ Adicionar comparável</button>
+  const p0=EPof(r),fixado=(POV[r.id]||{}).vendaAbs;
+  const aviso=fixado!=null?`<div class="pill y" style="display:inline-block;margin-top:8px">⚠ A venda considerada está <b>fixada em R$ ${fmt(fixado)}</b> (premissa/IA) — o valor abaixo, dos comparáveis, NÃO está sendo usado nos cálculos. Para usar os comparáveis, limpe o campo "Venda R$" nas premissas deste imóvel.</div>`:'';
+  return b+`</tbody></table>${aviso}<button class="ghost" style="margin-top:8px" onclick="addComp('${r.id}')">+ Adicionar comparável</button>
   <div style="display:flex;gap:22px;margin-top:10px;flex-wrap:wrap"><span class="muted">Usados: <b>${used.length}</b></span><span class="muted">R$/m² médio: <b>${avg?fmt(avg):'—'}</b></span><span class="muted">Valor de mercado: <b style="color:#5be59a">${mv?('R$ '+fmt(mv)):'—'}</b></span><span class="muted">Confiança: <b>${conf}</b></span></div></div>`;}
 function setComp(id,i,field,v){const rows=(COMP[id]||[]).map(x=>({...x}));rows[i][field]=(field==='usar'?!!v:(+v||0));COMP[id]=rows;saveLS('comp',COMP);render();if(modalbg.style.display==='flex')drawModal();}
 function addComp(id){COMP[id]=(COMP[id]||[]).concat([{preco:0,area:0,usar:true}]);saveLS('comp',COMP);drawModal();}
@@ -938,9 +942,18 @@ function tabCk(){const r=window._cur,p=EP();const ck=checklist(r,p);
   let b='<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px">'
     +`<span class="muted" id="ckSummary">${ckSummaryText(r,p)}</span>`
     +`<button class="ghost" style="padding:5px 10px;font-size:12px;white-space:nowrap" onclick="resetCk('${r.id}')">↺ Restaurar checklist</button></div>`;
+  const cont={OK:0,Pendente:0,Problema:0,'N/A':0};ck.forEach(c=>{cont[c.status]=(cont[c.status]||0)+1;});
+  const bloqN=ck.filter(c=>c.bloqueia&&(c.status==='Pendente'||c.status==='Problema')).length;
+  const fbtn=(v,lbl,n,cor)=>`<button class="ghost" style="padding:3px 9px;font-size:11.5px;${CKF===v?'background:var(--accent);color:#fff':(cor?'color:'+cor:'')}" onclick="setCkF('${v}')">${lbl}${n!=null?' ('+n+')':''}</button>`;
+  b+=`<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px;align-items:center">
+    <span class="muted" style="font-size:11px">filtrar:</span>
+    ${fbtn('todos','Todos',ck.length)}${fbtn('OK','✅ OK',cont.OK,'#5be59a')}${fbtn('Pendente','⏳ Pendente',cont.Pendente,'#f4d35e')}${fbtn('Problema','⛔ Problema',cont.Problema,'#ff8b7d')}${fbtn('N/A','N/A',cont['N/A'])}${fbtn('bloqueia','🔒 Bloqueiam',bloqN,'#ff8b7d')}${fbtn('ia','🤖 Da IA',ck.filter(c=>c.ai).length,'#9bb4ff')}
+  </div>`;
   b+='<div class="muted" style="margin-bottom:6px">🔒 = item que <b>bloqueia o lance</b> enquanto não estiver OK ou N/A.</div>';
+  const visiveis=ck.filter(c=>CKF==='todos'||(CKF==='bloqueia'?(c.bloqueia&&c.status!=='OK'&&c.status!=='N/A'):(CKF==='ia'?c.ai:c.status===CKF)));
+  if(!visiveis.length)b+='<div class="muted" style="padding:14px 0">Nenhum item nesse filtro.</div>';
   let cat='';
-  ck.forEach((c)=>{const i=c.i;if(c.cat!==cat){cat=c.cat;b+=`<h4 style="margin-top:12px">${cat}</h4>`;}
+  visiveis.forEach((c)=>{const i=c.i;if(c.cat!==cat){cat=c.cat;b+=`<h4 style="margin-top:12px">${cat}</h4>`;}
     b+=`<div class="ckrow"><div class="ckhead"><span class="crit c-${c.crit}">${c.crit}</span>${c.bloqueia?' <span class="crit c-Crítico" title="Bloqueia o lance se não estiver OK/N/A">🔒 bloqueia</span>':''}${c.ai?' <span class="crit" style="background:rgba(127,162,255,.18);color:#9bb4ff" title="Preenchido pela IA — revise">🤖 IA</span>':''} <b>${esc(c.item)}</b><div class="muted">${esc(c.obs)}</div></div>
       <div class="ckfields">
         <select onchange="setCkField('${r.id}',${i},'status',this.value)">${['OK','Pendente','Problema','N/A'].map(s=>`<option ${s===c.status?'selected':''}>${s}</option>`).join('')}</select>
@@ -997,13 +1010,13 @@ function promptIA(){
   const ck=checklist(rows[0],EPof(rows[0]));
   const keysDoc=ck.filter(c=>/^(edital|matricula|certidoes|ocupacao|debito)/.test(c.chave));
   let t='Você é um analista de leilão de imóveis. Para cada imóvel abaixo, leia a MATRÍCULA e o EDITAL (abra os links; se não conseguir abrir algum, me avise para eu anexar o PDF) e devolva SOMENTE um JSON no formato do final, sem nenhum texto fora do JSON.\n\n';
-  t+='REGRAS:\n- "status" permitido: "OK", "Pendente", "Problema", "N/A".\n- Em "evidencia": cite onde viu, curto (ex.: "Av.7/2022 da matrícula", "cláusula 4 do edital"). NÃO transcreva CPF, nomes completos ou dados pessoais.\n- Preencha só o que os DOCUMENTOS permitirem concluir; omita o resto.\n- Use "Problema" quando houver ônus/penhora/restrição não resolvida; "OK" quando conferido e limpo.\n- Em "origem": identifique a base legal/motivo do leilão a partir do edital/matrícula (consolidação fiduciária = extrajudicial; penhora/execução = judicial; etc.). Se judicial/penhora, preencha também os itens juridico_*.\n- Em "debitos": SEMPRE que encontrar valores de IPTU/condomínio/água/luz em atraso, informe o VALOR NUMÉRICO (sem R$ nem pontos: 8226.10). "coberto" = "Sim" se o edital/anúncio diz que a Caixa paga, "Não" se é do comprador, "A confirmar" se depende do anúncio.\n- Em "comparaveis": imóveis semelhantes que você encontrou, com preço e área numéricos (servem para calcular o valor de mercado por m²).\n- Em "reforma": estimativas de custo total nos 3 cenários, se der para inferir do estado do imóvel.\n- Em "achados_extras": coisas relevantes que não cabem nos itens (ex.: usufruto, cláusula de reversão, indisponibilidade, ITBI/condomínio destoante).\n\n';
+  t+='REGRAS:\n- "status" permitido: "OK", "Pendente", "Problema", "N/A".\n- Em "evidencia": cite onde viu, curto (ex.: "Av.7/2022 da matrícula", "cláusula 4 do edital"). NÃO transcreva CPF, nomes completos ou dados pessoais.\n- Preencha só o que os DOCUMENTOS permitirem concluir; omita o resto.\n- Use "Problema" quando houver ônus/penhora/restrição não resolvida; "OK" quando conferido e limpo.\n- Em "origem": identifique a base legal/motivo do leilão a partir do edital/matrícula (consolidação fiduciária = extrajudicial; penhora/execução = judicial; etc.). Se judicial/penhora, preencha também os itens juridico_*.\n- Em "debitos": SEMPRE que encontrar valores de IPTU/condomínio/água/luz em atraso, informe o VALOR NUMÉRICO (sem R$ nem pontos: 8226.10). "coberto" = "Sim" se o edital/anúncio diz que a Caixa paga, "Não" se é do comprador, "A confirmar" se depende do anúncio.\n- Em "comparaveis": imóveis semelhantes que você encontrou, com preço e área numéricos (servem para calcular o valor de mercado por m²).\n- Em "reforma": estimativas de custo total nos 3 cenários, se der para inferir do estado do imóvel.\n- Em "financeiro": os NÚMEROS da sua análise (frações para %, ex.: 0.05 = 5%). "lance" = valor que se pretende pagar (mínimo/2º leilão); "valor_revenda_mercado" = quanto vale de verdade hoje (não a avaliação da Caixa); "comissao_pct" = 0 quando não há leiloeiro.\n- Em "nome": um rótulo curto do imóvel (ex.: "Villa Vic — Indaiatuba (licitação)").\n- Em "achados_extras": coisas relevantes que não cabem nos itens (ex.: usufruto, cláusula de reversão, indisponibilidade, ITBI/condomínio destoante).\n\n';
   t+='CHAVES do checklist (use exatamente em "chave"):\n';
   keysDoc.forEach(c=>{t+='- '+c.chave+': '+c.cat+' — '+c.item+'\n';});
   t+='- juridico_processo: Jurídico — Processo: número, vara e fase (SÓ se judicial/penhora)\n- juridico_intimacao: Jurídico — Intimação do executado (SÓ se judicial/penhora)\n- juridico_recursos: Jurídico — Recursos/embargos/anulatórias (SÓ se judicial/penhora)\n- juridico_certidoes: Jurídico — Certidões do executado (SÓ se judicial/penhora)\n';
   t+='\nIMÓVEIS:\n';
   rows.forEach((r,i)=>{t+=(i+1)+') id='+r.id+' — '+r.tipo+', '+r.bairro+', '+r.cidade+'\n   Matrícula: https://venda-imoveis.caixa.gov.br/editais/matricula/'+r.uf+'/'+r.id+'.pdf\n   Detalhe/edital: '+r.link+'\n';});
-  t+='\nFORMATO DE SAÍDA (responda só isto):\n{\n  "imoveis": [\n    { "id": "<id>",\n      "origem": "Extrajudicial - fiduciária/financiamento | Judicial | Penhora | Herança/inventário | Dação em pagamento | Outro",\n      "checklist": [ {"chave":"matricula_onus","status":"Problema","evidencia":"...","obs":"..."} ],\n      "debitos": [ {"tipo":"IPTU vencido","valor":8226.10,"coberto":"A confirmar","status":"Problema","obs":"..."} ],\n      "comparaveis": [ {"preco":235000,"area":44.56,"usar":true,"fonte":"..."} ],\n      "reforma": {"leve":5000,"medio":15000,"pesado":30000,"cenario":"Médio"},\n      "achados_extras": [ {"titulo":"...","detalhe":"...","relevancia":"alta|média|baixa"} ],\n      "resumo": "1-2 frases"\n    }\n  ]\n}\n';
+  t+='\nFORMATO DE SAÍDA (responda só isto):\n{\n  "imoveis": [\n    { "id": "<id>",\n      "origem": "Extrajudicial - fiduciária/financiamento | Judicial | Penhora | Herança/inventário | Dação em pagamento | Outro",\n      "checklist": [ {"chave":"matricula_onus","status":"Problema","evidencia":"...","obs":"..."} ],\n      "debitos": [ {"tipo":"IPTU vencido","valor":8226.10,"coberto":"A confirmar","status":"Problema","obs":"..."} ],\n      "comparaveis": [ {"preco":235000,"area":44.56,"usar":true,"fonte":"..."} ],\n      "reforma": {"leve":5000,"medio":15000,"pesado":30000,"cenario":"Médio","obs":"..."},\n      "financeiro": {"lance":132970.97,"comissao_pct":0.05,"itbi_pct":0.03,"registro":5000,"iptu_atraso":0,"reforma":18000,"desocupacao":5000,"valor_revenda_mercado":263000,"lucro_liquido_flip":64957.65,"roi_flip":0.3796,"farol":"verde"},\n      "nome": "rótulo curto do imóvel",\n      "achados_extras": [ {"titulo":"...","detalhe":"...","relevancia":"alta|média|baixa"} ],\n      "resumo": "1-2 frases"\n    }\n  ]\n}\n';
   copyText(t,'Prompt copiado! Cole numa conversa com o Claude. Depois traga o JSON de volta em "📥 Importar análise IA".');
 }
 function openIAImport(){document.getElementById('iaText').value='';document.getElementById('iaImport').style.display='flex';}
@@ -1024,7 +1037,8 @@ function importIA(){
   const arr=data.imoveis||data['imóveis']||(Array.isArray(data)?data:[data]);
   if(!Array.isArray(arr)||!arr.length){alert('JSON sem lista de imóveis.');return;}
   const VALID=['OK','Pendente','Problema','N/A'];
-  let okN=0,notFound=[],itens=0,extras=0,debN=0,compN=0,refN=0;
+  let okN=0,notFound=[],itens=0,extras=0,debN=0,compN=0,refN=0,finN=0;
+  const meta={gerado_em:data.gerado_em||'',fonte:data.fonte||'',premissas:data.premissas||null,ranking:data.ranking||null};
   arr.forEach(im=>{const id=(''+(im.id||'')).trim();if(!id)return;
     const r=RAW.find(x=>x.id===id)||(FAVMETA[id]&&FAVMETA[id].preco!=null?rowFromMeta(FAVMETA[id]):null);
     if(!r){notFound.push(id);return;}
@@ -1044,12 +1058,13 @@ function importIA(){
         if(!isNaN(v))rows[i].valor=v;
         if(d.coberto)rows[i].coberto=(/^s/i.test(d.coberto)?'Sim':/^n/i.test(d.coberto)?'Não':'A confirmar');
         if(d.status&&VALID.includes(d.status))rows[i].status=d.status;
+        if(d.obs)rows[i].obs=d.obs;
         rows[i].ai=true;debN++;});
       DEBT[id]=rows;
     }
     // comparáveis → aba Comparáveis (definem o valor de mercado)
     if(Array.isArray(im.comparaveis)&&im.comparaveis.length){
-      const cs=im.comparaveis.map(c=>({preco:+c.preco||0,area:+c.area||0,usar:c.usar!==false})).filter(c=>c.preco>0&&c.area>0);
+      const cs=im.comparaveis.map(c=>({preco:+c.preco||0,area:+c.area||0,usar:c.usar!==false,fonte:c.fonte||''})).filter(c=>c.preco>0&&c.area>0);
       if(cs.length){COMP[id]=cs;compN+=cs.length;}
     }
     // reforma → aba Reforma (3 cenários)
@@ -1057,15 +1072,30 @@ function importIA(){
       const rf=Object.assign({sel:'Médio'},REF[id]||{});
       ['leve','medio','pesado'].forEach(k=>{const v=+im.reforma[k];if(!isNaN(v)&&v>0)rf[k]=v;});
       const cn=im.reforma.cenario||im.reforma.sel;if(cn&&/leve|m[ée]dio|pesado/i.test(cn))rf.sel=/leve/i.test(cn)?'Leve':/pesado/i.test(cn)?'Pesado':'Médio';
+      if(im.reforma.obs)rf.obs=im.reforma.obs;
       REF[id]=rf;refN++;
     }
-    const ax=AIX[id]||{};
-    if(im.resumo)ax.resumo=im.resumo;
-    if(Array.isArray(im.achados_extras))ax.achados=(ax.achados||[]).concat(im.achados_extras.map(x=>({titulo:x.titulo||'',detalhe:x.detalhe||'',relevancia:(x.relevancia||'').toLowerCase()})));
-    if(im.resumo||im.achados_extras){AIX[id]=ax;extras+=(im.achados_extras||[]).length;}
+    if(im.financeiro&&typeof im.financeiro==='object'){
+      const f=im.financeiro, ov=Object.assign({},POV[id]), num=v=>{const n=parseFloat(v);return isNaN(n)?null:n;};
+      if(num(f.lance)!=null)ov.preco=num(f.lance);
+      if(num(f.valor_revenda_mercado)!=null)ov.vendaAbs=num(f.valor_revenda_mercado);
+      if(num(f.comissao_pct)!=null)ov.leiloeiro=num(f.comissao_pct);
+      if(num(f.itbi_pct)!=null)ov.itbi=num(f.itbi_pct);
+      if(num(f.desocupacao)!=null)ov.desoc=num(f.desocupacao);
+      if(num(f.registro)!=null)ov.registro=num(f.registro);
+      POV[id]=ov;finN++;
+    }
+    const ax=AIX[id]||{};let axTocado=false;
+    if(im.nome){ax.nome=im.nome;axTocado=true;}
+    if(im.financeiro){ax.fin=im.financeiro;axTocado=true;}
+    if(meta.gerado_em||meta.fonte){ax.analise={gerado_em:meta.gerado_em,fonte:meta.fonte,premissas:meta.premissas};axTocado=true;}
+    if(meta.ranking){const pos=(meta.ranking||[]).find(x=>(''+x.id)===id);if(pos){ax.ranking=pos;axTocado=true;}}
+    if(im.resumo){ax.resumo=im.resumo;axTocado=true;}
+    if(Array.isArray(im.achados_extras)){ax.achados=(ax.achados||[]).concat(im.achados_extras.map(x=>({titulo:x.titulo||'',detalhe:x.detalhe||'',relevancia:(x.relevancia||'').toLowerCase()})));extras+=im.achados_extras.length;axTocado=true;}
+    if(axTocado)AIX[id]=ax;
     okN++;});
-  saveLS('ck_state',CKST);saveLS('aix',AIX);saveLS('origem',ORIGEM);saveLS('debt',DEBT);saveLS('comp',COMP);saveLS('ref',REF);render();if(modalbg.style.display==='flex')drawModal();closeIAImport();
-  alert('Importado: '+okN+' imóvel(is)\n• '+itens+' item(ns) do checklist\n• '+debN+' débito(s)\n• '+compN+' comparável(is)\n• '+refN+' orçamento(s) de reforma\n• '+extras+' achado(s)'+(notFound.length?('\n\nNão encontrei (favorite/carregue o CSV): '+notFound.join(', ')):''));
+  saveLS('ck_state',CKST);saveLS('aix',AIX);saveLS('origem',ORIGEM);saveLS('debt',DEBT);saveLS('comp',COMP);saveLS('ref',REF);saveLS('prem_over',POV);render();if(modalbg.style.display==='flex')drawModal();closeIAImport();
+  alert('Importado: '+okN+' imóvel(is)\n• '+itens+' item(ns) do checklist\n• '+debN+' débito(s)\n• '+compN+' comparável(is)\n• '+refN+' orçamento(s) de reforma\n• '+finN+' bloco(s) financeiro\n• '+extras+' achado(s)'+(notFound.length?('\n\nNão encontrei (favorite/carregue o CSV): '+notFound.join(', ')):''));
 }
 function ensureAix(id){AIX[id]=AIX[id]||{};AIX[id].achados=AIX[id].achados||[];return AIX[id];}
 function setAix(id,i,f,v){const ax=ensureAix(id);ax.achados[i]=Object.assign({},ax.achados[i]);ax.achados[i][f]=v;saveLS('aix',AIX);}
@@ -1073,6 +1103,23 @@ function addAix(id){ensureAix(id).achados.push({titulo:'',detalhe:'',relevancia:
 function delAix(id,i){ensureAix(id).achados.splice(i,1);saveLS('aix',AIX);drawModal();}
 function aiAchadosCard(r){const ax=AIX[r.id]||{},ach=ax.achados||[];
   let b='<div class="card" style="margin-top:14px"><h4>🤖 Achados da IA / anotações</h4>';
+  if(ax.nome||ax.ranking||ax.analise){
+    b+='<div class="muted" style="margin-bottom:8px;font-size:11.5px">';
+    if(ax.nome)b+='<b style="color:var(--txt)">'+esc(ax.nome)+'</b>';
+    if(ax.ranking)b+=' · <span class="pill '+(ax.ranking.farol==='verde'?'g':ax.ranking.farol==='amarelo'?'y':'r')+'">#'+esc(''+ax.ranking.pos)+' no ranking da IA</span>';
+    if(ax.analise&&ax.analise.gerado_em)b+=' · análise de '+fmtDate(ax.analise.gerado_em);
+    if(ax.analise&&ax.analise.fonte)b+=' · '+esc(ax.analise.fonte);
+    b+='</div>';
+  }
+  if(ax.fin){const f=ax.fin,p1=EPof(r),c1=calc(r,p1),av1=avistaSeries(r,p1).slice(-1)[0];
+    const roiApp=c1.investAvista?av1.ll/c1.investAvista:0;
+    const lin=(lbl,ia,app,fmtf)=>`<div class="kv"><span>${lbl}</span><b>${ia!=null?fmtf(ia):'—'} <span class="muted" style="font-weight:400">· app: ${fmtf(app)}</span></b></div>`;
+    b+='<div class="card" style="background:var(--panel);margin-bottom:10px"><h4 style="margin:0 0 6px">Números da IA × do app</h4>'
+      +lin('Custo total de aquisição',f.custo_total_aquisicao,c1.investAvista,v=>'R$ '+fmt(v))
+      +lin('Valor de revenda',f.valor_revenda_mercado,c1.vv,v=>'R$ '+fmt(v))
+      +lin('Lucro líquido',f.lucro_liquido_flip,av1.ll,v=>'R$ '+fmt(v))
+      +lin('ROI',f.roi_flip,roiApp,v=>pct(v))
+      +'<div class="muted" style="font-size:10.5px;margin-top:6px">Diferenças vêm das premissas (registro, prazo de venda, imposto, corretagem) — ajuste em "Premissas deste imóvel" se quiser bater exatamente.</div></div>';}
   if(ax.resumo)b+='<div class="muted" style="margin-bottom:8px">'+esc(ax.resumo)+'</div>';
   if(!ach.length&&!ax.resumo)b+='<div class="muted">Nenhum achado ainda. Gere o prompt em "🤖 Gerar prompt p/ IA" (nos favoritos), cole o resultado em "📥 Importar análise IA", ou adicione manualmente abaixo.</div>';
   ach.forEach((x,i)=>{const cl=x.relevancia==='alta'?'r':(x.relevancia==='média'||x.relevancia==='media')?'y':'';
