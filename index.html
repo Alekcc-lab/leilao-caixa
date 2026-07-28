@@ -486,7 +486,7 @@ function renderPainel(){
     <table class="mono"><thead><tr><th>#</th><th>Imóvel</th><th class="rt">Score</th><th class="rt">ROI</th><th class="rt">Folga</th><th class="rt">Desc. real</th><th class="rt">Diligência</th><th class="rt">Comps</th><th>Situação</th></tr></thead><tbody>`;
   rk.forEach(x=>{const o=x.o,fr=farol(x.r,x.p);const cor=o.score>=70?'#5be59a':o.score>=45?'#f4d35e':'#ff8b7d';
     h+=`<tr onclick="openDetail('${x.r.id}')" style="cursor:pointer" title="${Object.entries(o.partes).filter(([,v])=>v).map(([k,v])=>k+' '+(v>0?'+':'')+v).join(' · ')}">
-      <td><b>${x.pos}º</b></td><td>${esc((x.r.tipo||'')+' · '+(x.r.bairro||'')+', '+(x.r.cidade||''))}${(AIX[x.r.id]&&AIX[x.r.id].ranking)?` <span class="muted" style="font-size:10px">(IA: #${AIX[x.r.id].ranking.pos})</span>`:''}</td>
+      <td><b>${x.pos}º</b></td><td>${esc((x.r.tipo||'')+' · '+(x.r.bairro||'')+', '+(x.r.cidade||''))}</td>
       <td class="rt"><b style="color:${cor}">${o.score}</b></td><td class="rt">${pct(o.roi)}</td>
       <td class="rt ${o.folga<0?'neg':''}">${(o.folga*100).toFixed(0)}%</td><td class="rt">${(o.descVenda*100).toFixed(0)}%</td>
       <td class="rt">${Math.round(o.prog*100)}%${o.bloq?` <span class="neg" title="itens que bloqueiam">🔒${o.bloq}</span>`:''}</td>
@@ -1088,7 +1088,6 @@ function importIA(){
   if(!Array.isArray(arr)||!arr.length){alert('JSON sem lista de imóveis.');return;}
   const VALID=['OK','Pendente','Problema','N/A'];
   let okN=0,notFound=[],itens=0,extras=0,debN=0,compN=0,refN=0,finN=0;
-  const meta={gerado_em:data.gerado_em||'',fonte:data.fonte||'',premissas:data.premissas||null,ranking:data.ranking||null};
   arr.forEach(im=>{const id=(''+(im.id||'')).trim();if(!id)return;
     const r=RAW.find(x=>x.id===id)||(FAVMETA[id]&&FAVMETA[id].preco!=null?rowFromMeta(FAVMETA[id]):null);
     if(!r){notFound.push(id);return;}
@@ -1138,8 +1137,7 @@ function importIA(){
     const ax=AIX[id]||{};let axTocado=false;
     if(im.nome){ax.nome=im.nome;axTocado=true;}
     if(im.financeiro){ax.fin=im.financeiro;axTocado=true;}
-    if(meta.gerado_em||meta.fonte){ax.analise={gerado_em:meta.gerado_em,fonte:meta.fonte,premissas:meta.premissas};axTocado=true;}
-    if(meta.ranking){const pos=(meta.ranking||[]).find(x=>(''+x.id)===id);if(pos){ax.ranking=pos;axTocado=true;}}
+    if(ax.ranking||ax.analise){delete ax.ranking;delete ax.analise;axTocado=true;}   // ranking/contexto da IA: o app faz o próprio
     if(im.resumo){ax.resumo=im.resumo;axTocado=true;}
     if(Array.isArray(im.achados_extras)){ax.achados=(ax.achados||[]).concat(im.achados_extras.map(x=>({titulo:x.titulo||'',detalhe:x.detalhe||'',relevancia:(x.relevancia||'').toLowerCase()})));extras+=im.achados_extras.length;axTocado=true;}
     if(axTocado)AIX[id]=ax;
@@ -1153,14 +1151,7 @@ function addAix(id){ensureAix(id).achados.push({titulo:'',detalhe:'',relevancia:
 function delAix(id,i){ensureAix(id).achados.splice(i,1);saveLS('aix',AIX);drawModal();}
 function aiAchadosCard(r){const ax=AIX[r.id]||{},ach=ax.achados||[];
   let b='<div class="card" style="margin-top:14px"><h4>🤖 Achados da IA / anotações</h4>';
-  if(ax.nome||ax.ranking||ax.analise){
-    b+='<div class="muted" style="margin-bottom:8px;font-size:11.5px">';
-    if(ax.nome)b+='<b style="color:var(--txt)">'+esc(ax.nome)+'</b>';
-    if(ax.ranking)b+=' · <span class="pill '+(ax.ranking.farol==='verde'?'g':ax.ranking.farol==='amarelo'?'y':'r')+'">#'+esc(''+ax.ranking.pos)+' no ranking da IA</span>';
-    if(ax.analise&&ax.analise.gerado_em)b+=' · análise de '+fmtDate(ax.analise.gerado_em);
-    if(ax.analise&&ax.analise.fonte)b+=' · '+esc(ax.analise.fonte);
-    b+='</div>';
-  }
+  if(ax.nome)b+='<div class="muted" style="margin-bottom:8px;font-size:11.5px"><b style="color:var(--txt)">'+esc(ax.nome)+'</b></div>';
   if(ax.fin){const f=ax.fin,p1=EPof(r),c1=calc(r,p1),av1=avistaSeries(r,p1).slice(-1)[0];
     const roiApp=c1.investAvista?av1.ll/c1.investAvista:0;
     const lin=(lbl,ia,app,fmtf)=>`<div class="kv"><span>${lbl}</span><b>${ia!=null?fmtf(ia):'—'} <span class="muted" style="font-weight:400">· app: ${fmtf(app)}</span></b></div>`;
