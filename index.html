@@ -174,13 +174,7 @@
     <div id="trilha" class="muted" style="font-size:11.5px;margin:-4px 0 10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center"></div>
     <div class="statrow" id="stats"></div>
     <div id="tableWrap"><div class="empty">Nenhum dado carregado.<br>Baixe a lista em <a href="https://venda-imoveis.caixa.gov.br/sistema/download-lista.asp" target="_blank">download-lista.asp</a> e carregue aqui.</div></div>
-    <div class="finbar" id="finbar" style="display:none">
-      <b id="finCount">0</b><span class="muted">favoritos</span>
-      <button onclick="exportModelo()">📊 Exportar planilha (modelo)</button>
-      <button class="ghost" onclick="promptIA()">🤖 Gerar prompt IA (marcados)</button>
-      <button class="ghost" onclick="openIAImport()">📥 Importar análise IA</button>
-      <button class="ghost" onclick="clearFin()">Limpar favoritos</button>
-    </div>
+    <div class="finbar" id="finbar" style="display:none"></div>
   </main>
 </div>
 <div class="modalbg" id="modalbg"><div class="modal" id="modal"></div></div>
@@ -345,6 +339,25 @@ function reconcileFavorites(dg){
   });
   saveLS('fav_meta',FAVMETA);
 }
+function renderFinbar(){
+  const bar=document.getElementById('finbar');if(!bar)return;
+  const n=Object.keys(FIN).filter(k=>FIN[k]).length;
+  if(!n){bar.style.display='none';bar.innerHTML='';return;}
+  bar.style.display='flex';
+  if(VIEW==='all'){   // Explorar: só o resumo e o atalho — marcar/gerar é na Carteira
+    bar.innerHTML=`<b>${n}</b><span class="muted">favoritos</span>
+      <button onclick="setView('fav')">★ Ir para a Carteira</button>
+      <span class="muted" style="font-size:11.5px">exportar, IA e prazos ficam lá</span>`;
+    return;}
+  const marcados=Object.keys(FIN).filter(k=>FIN[k]&&iaSelected(k)).length;
+  const naLista=SUB.fav==='lista';
+  bar.innerHTML=`<b>${n}</b><span class="muted">favoritos</span>
+    <button onclick="exportModelo()">📊 Exportar planilha (modelo)</button>
+    <button class="ghost" onclick="promptIA()">🤖 Gerar prompt IA (${marcados} marcado${marcados===1?'':'s'})</button>
+    <button class="ghost" onclick="openIAImport()">📥 Importar análise IA</button>
+    <button class="ghost" onclick="clearFin()">Limpar favoritos</button>
+    ${naLista?'':'<span class="muted" style="font-size:11.5px">marque quais na sub-aba <a href="#" onclick="setSub(\'lista\');return false">☰ Lista</a></span>'}`;
+}
 function updateFavTab(){const c=Object.keys(FIN).filter(k=>FIN[k]).length;const ft=document.querySelector('#viewTabs [data-v="fav"]');if(ft)ft.textContent='★ Carteira ('+c+')';}
 function toggleSide(){const e=document.getElementById('sideEl'),b=document.getElementById('sideTgl');const c=e.classList.toggle('col');b.textContent=c?'▶':'◀';try{localStorage.setItem('side_col',c?'1':'0')}catch(_){}
   if(_map)setTimeout(()=>_map.invalidateSize(),220);}
@@ -389,9 +402,9 @@ function renderFavorites(p){
   const semPrazo=online.filter(x=>!x.meta.prazo).length;
   const urg=online.filter(x=>{const du=daysUntil(x.meta.prazo);return du!=null&&du<=3;}).length;
   stats.innerHTML=[['Favoritos',items.length],['Fora da lista',fora],['Online s/ prazo',semPrazo],['Prazo urgente/vencido',urg]].map(s=>`<div class="stat">${s[0]}<b>${s[1]}</b></div>`).join('');
-  if(!items.length){tableWrap.innerHTML='<div class="empty">Nenhum favorito ainda.<br>Vá em <b>Todos</b> e marque imóveis com ★.</div>';finbar.style.display='none';return;}
+  if(!items.length){tableWrap.innerHTML='<div class="empty">Nenhum favorito ainda.<br>Vá em <b>🔎 Explorar</b> e marque imóveis com ★.</div>';finbar.style.display='none';return;}
   const cols=['★','IA','🤝','Status','Cidade','Tipo','Bairro','Preço','Desc.%','Modalidade','Prazo leilão','Lance máx.','Meu teto','Farol','Abrir'];
-  let h='<div class="muted" style="margin-bottom:6px">Coluna <b>IA</b>: marque quais imóveis entram no "🤖 Gerar prompt p/ IA" (já analisados vêm com 🤖 e desmarcados). <a href="#" onclick="setAllIA(true);return false">todos</a> · <a href="#" onclick="setAllIA(false);return false">nenhum</a></div><table class="mono"><thead><tr>'+cols.map(c=>`<th>${c}</th>`).join('')+'</tr></thead><tbody>';
+  let h='<div class="muted" style="margin-bottom:6px">Coluna <b>IA</b>: marque quais imóveis entram no <b>🤖 Gerar prompt IA</b> da barra abaixo (já analisados vêm com 🤖 e desmarcados). <a href="#" onclick="setAllIA(true);return false">todos</a> · <a href="#" onclick="setAllIA(false);return false">nenhum</a></div><table class="mono"><thead><tr>'+cols.map(c=>`<th>${c}</th>`).join('')+'</tr></thead><tbody>';
   items.forEach(x=>{
     const d=x.data,on=isOnlineSale(d.modal);
     let precoCell=fmt(d.preco);
@@ -405,7 +418,7 @@ function renderFavorites(p){
     if(x.present){const dec=decisao(x.row,EPof(x.row)),fr=dec.fr;farolCell=`<span class="pill ${fr.verd==='VERDE'?'g':fr.verd==='AMARELO'?'y':'r'}">${fr.verd}</span>`;lanceCell=`<span class="${dec.folga<0?'neg':''}">${fmt(dec.lance)}</span>${dec.folga<0?' ⛔':''}`;}
     h+=`<tr class="${LASTVIEW===x.id?'viewed':''}" onclick="openDetail('${x.id}')"><td onclick="event.stopPropagation();toggleFin('${x.id}')" style="cursor:pointer">⭐</td><td onclick="event.stopPropagation()"><input type="checkbox" ${iaSelected(x.id)?'checked':''} onchange="toggleIASel('${x.id}',this.checked)" style="width:auto" title="incluir no prompt da IA">${isAnalyzed(x.id)?' <span title="já analisado pela IA">🤖</span>':''}</td><td onclick="event.stopPropagation()" style="cursor:pointer">${isShared(x.id)?`<span title="compartilhado com o grupo — editado por ${esc((SHARED[x.id].updated_by_email||'').split('@')[0])} há ${ago(SHARED[x.id].updated_at)}" onclick="setView('shared')">🤝</span>`:`<span title="compartilhar com o grupo" onclick="shareProp('${x.id}')" style="opacity:.45">🤝</span>`}</td><td>${status}</td><td>${d.cidade||'—'}</td><td>${d.tipo||'—'}</td><td>${d.bairro||'—'}</td><td class="rt">${precoCell}</td><td class="rt">${d.desc!=null?(+d.desc).toFixed(1):'—'}%</td><td>${d.modal||'—'}</td><td>${prazoCell}</td><td class="rt">${lanceCell}</td><td class="rt">${tetoCell}</td><td>${farolCell}</td><td>🔍</td></tr>`;
   });
-  h+='</tbody></table>';tableWrap.innerHTML=h;finbar.style.display='flex';finCount.textContent=items.length;
+  h+='</tbody></table>';tableWrap.innerHTML=h;renderFinbar();
 }
 
 // ---------- Score de oportunidade e ranking da carteira ----------
@@ -502,7 +515,7 @@ function renderPainel(){
   h+=`<div class="card"><h4>⏰ Prazos de leilão</h4>`;
   const restante=d=>{const hh=hoursUntil(d.prazo);if(hh==null)return '';if(hh<0)return 'vencido';if(hh<1)return Math.max(1,Math.round(hh*60))+' min';if(hh<24)return 'hoje · '+Math.round(hh)+'h';return Math.ceil(hh/24)+'d';};
   h+=lista(urg.concat(venc).slice(0,8),d=>`<div class="kv"><span>${linkIm(d)}</span><b class="${d.du<0||hoursUntil(d.prazo)<24?'neg':''}">${restante(d)} · ${fmtDate(d.prazo)}</b></div>`,'Nenhum leilão nos próximos 7 dias.');
-  if(semPrazo.length)h+=`<div class="muted" style="margin-top:8px">⚠ ${semPrazo.length} imóvel(is) de venda online <b>sem prazo preenchido</b> — defina na aba Favoritos.</div>`;
+  if(semPrazo.length)h+=`<div class="muted" style="margin-top:8px">⚠ ${semPrazo.length} imóvel(is) de venda online <b>sem prazo preenchido</b> — defina em ★ Carteira → ☰ Lista.</div>`;
   h+='</div>';
 
   // Decisão
@@ -565,7 +578,7 @@ function renderPainel(){
     <div class="card">${barChart(faixa,'Faixa de preço','#2ecc71',6)}</div>
     <div class="card">${barChart(countBy(D,d=>d.res),'Situação na disputa','#e67e22',6)}</div>
   </div>`;
-  tableWrap.innerHTML=h;finbar.style.display='none';
+  tableWrap.innerHTML=h;renderFinbar();
 }
 function mapRows(){
   const favIds=Object.keys(FIN).filter(k=>FIN[k]);
@@ -659,7 +672,7 @@ function renderShared(){
   const ids=Object.keys(SHARED);
   const meus=ids.filter(id=>USER&&SHARED[id].owner_id===USER.id).length;
   stats.innerHTML=[['Compartilhados',ids.length],['Publicados por mim',meus],['De outros',ids.length-meus],['Sincroniza',"30s"]].map(s=>`<div class="stat">${s[0]}<b>${s[1]}</b></div>`).join('');
-  if(!ids.length){tableWrap.innerHTML='<div class="empty">Nada compartilhado ainda.<br>Na aba <b>★ Favoritos</b>, clique em <b>🤝</b> para publicar um imóvel para o grupo — todos podem ver e editar junto.</div>';finbar.style.display='none';return;}
+  if(!ids.length){tableWrap.innerHTML='<div class="empty">Nada compartilhado ainda.<br>Em <b>★ Carteira → ☰ Lista</b>, clique em <b>🤝</b> para publicar um imóvel — todos do grupo veem e editam junto.</div>';finbar.style.display='none';return;}
   let h='<div class="muted" style="margin-bottom:6px">Dossiês <b>colaborativos</b>: qualquer pessoa do grupo edita e as mudanças aparecem para todos (atualiza a cada 30s). <a href="#" onclick="sharedLoad();return false">atualizar agora</a></div>'
    +'<table class="mono"><thead><tr><th>Imóvel</th><th>Publicado por</th><th>Última edição</th><th class="rt">Preço</th><th>Farol</th><th></th></tr></thead><tbody>';
   ids.forEach(id=>{const s=SHARED[id];const row=RAW.find(x=>x.id===id)||sharedRowFor(id);
@@ -878,7 +891,7 @@ function render(){const _mainEl=document.querySelector('.main'),_sc=_mainEl?_mai
     if(mostra('fin'))td+=`<td>${r.fin==='Sim'?'<span class="pill g">Sim</span>':'Não'}</td>`;
     td+=`<td><span class="pill ${fc==='VERDE'?'g':fc==='AMARELO'?'y':'r'}">${fc}</span></td><td onclick="event.stopPropagation();toggleFin('${r.id}')">${FIN[r.id]?'⭐':'☆'}</td>`;
     h+=`<tr class="${LASTVIEW===r.id?'viewed':''}" onclick="openDetail('${r.id}')">${td}</tr>`;});
-  h+='</tbody></table>';tableWrap.innerHTML=h;const c=Object.keys(FIN).filter(k=>FIN[k]).length;finbar.style.display=c?'flex':'none';finCount.textContent=c;_restore();}
+  h+='</tbody></table>';tableWrap.innerHTML=h;renderFinbar();_restore();}
 function sortBy(k){if(k==='sel'||k==='#')return;SORT.dir=SORT.k===k?-SORT.dir:-1;SORT.k=k;render();}
 function toggleFin(id){FIN[id]=!FIN[id];if(FIN[id]){const row=RAW.find(r=>r.id===id);if(row){const snap=snapFromRow(row,window._dg||'');snap.prevPreco=null;snap.firstDg=window._dg||'';snap.prazo=(FAVMETA[id]&&FAVMETA[id].prazo)||'';FAVMETA[id]=snap;}}else{delete FAVMETA[id];}saveLS('fav_meta',FAVMETA);saveLS('fin_sel',FIN);render();}
 function clearFin(){if(!confirm('Remover TODOS os favoritos? (o checklist e as premissas por imóvel são mantidos)'))return;Object.keys(FIN).forEach(k=>delete FIN[k]);Object.keys(FAVMETA).forEach(k=>delete FAVMETA[k]);saveLS('fav_meta',FAVMETA);saveLS('fin_sel',FIN);render();}
