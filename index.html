@@ -90,6 +90,15 @@
   .premgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-top:10px}
   @media(max-width:1100px){.premgrid{grid-template-columns:repeat(4,1fr)}}
   @media(max-width:700px){.premgrid{grid-template-columns:repeat(2,1fr)}}
+  /* sidebar colapsável e seções recolhíveis */
+  .side{transition:width .18s,min-width .18s,padding .18s}
+  .side.col{width:0;min-width:0;padding:0;overflow:hidden;border-right:0}
+  #sideTgl{position:absolute;left:0;top:56px;z-index:30;background:var(--panel2);border:1px solid var(--line);border-left:0;border-radius:0 8px 8px 0;color:var(--mut);padding:7px 6px;cursor:pointer;font-size:12px;line-height:1}
+  #sideTgl:hover{color:var(--txt)}
+  .sec>h3{cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px}
+  .sec>h3 .ar{font-size:9px;width:9px;display:inline-block}
+  .sec.closed>.secbody{display:none}
+  #busca{width:100%}
   /* responsivo geral / celular */
   @media(max-width:820px){
     .wrap{flex-direction:column}
@@ -117,20 +126,24 @@
   <p class="muted" id="gateMsg" style="margin-top:14px">Verificando login…</p>
 </div></div>
 <div class="wrap" style="display:none">
-  <aside class="side">
-    <h3>1 · Dados</h3>
+  <button id="sideTgl" onclick="toggleSide()" title="mostrar/ocultar o painel lateral">◀</button>
+  <aside class="side" id="sideEl">
+    <div class="sec" id="secDados"><h3 onclick="toggleSec('secDados')"><span class="ar">▾</span>1 · Dados</h3><div class="secbody">
     <label>Lista da Caixa (CSV)</label>
     <input type="file" id="file" accept=".csv">
     <div class="muted" style="margin-top:4px;font-size:11px">⬇ <a href="https://venda-imoveis.caixa.gov.br/sistema/download-lista.asp" target="_blank" rel="noopener">baixar a lista atualizada na Caixa</a></div>
     <div class="muted" id="dataInfo" style="margin-top:6px"></div>
-    <h3>2 · Filtros</h3>
+    </div></div>
+    <div class="sec" id="secFiltros"><h3 onclick="toggleSec('secFiltros')"><span class="ar">▾</span>2 · Filtros</h3><div class="secbody">
+    <label>Buscar</label><input id="busca" placeholder="endereço, bairro ou matrícula" oninput="applyFilters()">
     <label>Cidade</label><select id="fCidade" onchange="fillBairros()"><option value="">— carregue o CSV —</option></select>
     <label>Bairro</label><select id="fBairro"><option value="">— todos os bairros —</option></select>
     <label>Valor máximo (R$)</label><input type="number" id="fValor" placeholder="vazio = sem limite">
     <label>Tipos <span class="muted" style="font-weight:400;font-size:11px">(<a href="#" onclick="setAllTipos(true);return false">todos</a> · <a href="#" onclick="setAllTipos(false);return false">nenhum</a>)</span></label><div id="fTipos"></div>
     <label>Modalidade <span class="muted" style="font-weight:400;font-size:11px">(<a href="#" onclick="setAllModal(true);return false">todas</a> · <a href="#" onclick="setAllModal(false);return false">nenhuma</a>)</span></label><div id="fModal"></div>
     <button style="width:100%;margin-top:10px" onclick="applyFilters()">Aplicar filtros</button>
-    <h3>3 · Premissas globais</h3>
+    </div></div>
+    <div class="sec closed" id="secPrem"><h3 onclick="toggleSec('secPrem')"><span class="ar">▸</span>3 · Premissas globais</h3><div class="secbody">
     <div class="row2">
       <div><label>Venda % aval.</label><input type="number" step="1" id="pVendaPct" value="100"></div>
       <div><label>Prazo venda (m)</label><input type="number" id="pPrazoVenda" value="12"></div>
@@ -149,15 +162,16 @@
     </div>
     <button class="ghost" style="width:100%;margin-top:10px" onclick="recalc()">Recalcular</button>
     <div class="muted" style="margin-top:8px">Terreno: sem condomínio/reforma. Casa: sem condomínio. "Venda % aval." simula revenda abaixo do laudo.</div>
+    </div></div>
   </aside>
   <main class="main">
     <div class="tabs" id="viewTabs">
-      <button class="on" data-v="all" onclick="setView('all')">Todos</button>
-      <button data-v="fav" onclick="setView('fav')">★ Favoritos (0)</button>
-      <button data-v="shared" onclick="setView('shared')">🤝 Compartilhados (0)</button>
-      <button data-v="map" onclick="setView('map')">🗺 Mapa</button>
-      <button data-v="painel" onclick="setView('painel')">📊 Painel</button>
+      <button class="on" data-v="all" onclick="setView('all')">🔎 Explorar</button>
+      <button data-v="fav" onclick="setView('fav')">★ Carteira (0)</button>
+      <button data-v="shared" onclick="setView('shared')">🤝 Grupo (0)</button>
+      <span style="margin-left:auto;display:flex;gap:5px" id="subTabs"></span>
     </div>
+    <div id="trilha" class="muted" style="font-size:11.5px;margin:-4px 0 10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center"></div>
     <div class="statrow" id="stats"></div>
     <div id="tableWrap"><div class="empty">Nenhum dado carregado.<br>Baixe a lista em <a href="https://venda-imoveis.caixa.gov.br/sistema/download-lista.asp" target="_blank">download-lista.asp</a> e carregue aqui.</div></div>
     <div class="finbar" id="finbar" style="display:none">
@@ -266,6 +280,8 @@ function origemOf(r){const o=ORIGEM[r.id];return (o&&o.tipo)?o.tipo:origemGuess(
 function origemManual(r){return !!(ORIGEM[r.id]&&ORIGEM[r.id].tipo);}
 function isJudicial(r){const o=origemOf(r);return o==='Judicial'||o==='Penhora';}
 function matchOrigem(s){s=(''+s).toLowerCase();if(/extra|fiduc|9\.?514|consolida/.test(s))return 'Extrajudicial - fiduciária/financiamento';if(/penhora/.test(s))return 'Penhora';if(/judicial|execu[çc]/.test(s))return 'Judicial';if(/heran|invent/.test(s))return 'Herança/inventário';if(/da[çc][ãa]o/.test(s))return 'Dação em pagamento';return 'Outro / A confirmar';}
+let COLMODE=(()=>{try{return localStorage.getItem('colmode')||'triagem'}catch(_){return 'triagem'}})();
+function setColMode(v){COLMODE=v;try{localStorage.setItem('colmode',v)}catch(_){}render();}
 let CKF='todos';
 function setCkF(v){CKF=v;drawModal();}
 let VIEW='all', IASEL={}, SHARED={}, _sharePush={}, _shareTimer=null, _sharePoll=null, LASTVIEW=null;
@@ -329,8 +345,41 @@ function reconcileFavorites(dg){
   });
   saveLS('fav_meta',FAVMETA);
 }
-function updateFavTab(){const c=Object.keys(FIN).filter(k=>FIN[k]).length;const ft=document.querySelector('#viewTabs [data-v="fav"]');if(ft)ft.textContent='★ Favoritos ('+c+')';}
-function setView(v){if(v!=='map'&&_map){_map.remove();_map=null;_mapLayer=null;}VIEW=v;document.querySelectorAll('#viewTabs button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));render();}
+function updateFavTab(){const c=Object.keys(FIN).filter(k=>FIN[k]).length;const ft=document.querySelector('#viewTabs [data-v="fav"]');if(ft)ft.textContent='★ Carteira ('+c+')';}
+function toggleSide(){const e=document.getElementById('sideEl'),b=document.getElementById('sideTgl');const c=e.classList.toggle('col');b.textContent=c?'▶':'◀';try{localStorage.setItem('side_col',c?'1':'0')}catch(_){}
+  if(_map)setTimeout(()=>_map.invalidateSize(),220);}
+function toggleSec(id){const e=document.getElementById(id);const c=e.classList.toggle('closed');const ar=e.querySelector('.ar');if(ar)ar.textContent=c?'▸':'▾';try{localStorage.setItem('sec_'+id,c?'1':'0')}catch(_){}}
+function restoreUI(){try{
+  if(localStorage.getItem('side_col')==='1'){document.getElementById('sideEl').classList.add('col');document.getElementById('sideTgl').textContent='▶';}
+  ['secDados','secFiltros','secPrem'].forEach(id=>{const v=localStorage.getItem('sec_'+id);const e=document.getElementById(id);if(!e||v==null)return;
+    e.classList.toggle('closed',v==='1');const ar=e.querySelector('.ar');if(ar)ar.textContent=v==='1'?'▸':'▾';});
+}catch(_){}}
+// sub-abas por visão: Explorar = lista/mapa · Carteira = painel/lista
+let SUB={all:'lista',fav:'painel'};
+function setSub(v){if(_map){_map.remove();_map=null;_mapLayer=null;}SUB[VIEW]=v;render();}
+function renderSubTabs(){
+  const el=document.getElementById('subTabs');if(!el)return;
+  const b=(v,lbl)=>`<button class="${SUB[VIEW]===v?'on':''}" style="padding:5px 11px;font-size:12px" onclick="setSub('${v}')">${lbl}</button>`;
+  if(VIEW==='all')el.innerHTML=b('lista','☰ Lista')+b('mapa','🗺 Mapa');
+  else if(VIEW==='fav')el.innerHTML=b('painel','📊 Painel')+b('lista','☰ Lista')+b('mapa','🗺 Mapa');
+  else el.innerHTML='';
+}
+function renderTrilha(){
+  const el=document.getElementById('trilha');if(!el)return;
+  const favs=Object.keys(FIN).filter(k=>FIN[k]).length;
+  const D=favs?painelData():[];
+  const dilOk=D.filter(d=>d.dec.bloqueios===0).length;
+  const comTeto=D.filter(d=>d.teto!=null).length;
+  const p=(n,lbl,feito,ativo,acao)=>`<span onclick="${acao}" style="cursor:pointer;padding:3px 9px;border-radius:20px;background:${feito?'rgba(46,204,113,.14)':ativo?'rgba(79,124,255,.18)':'var(--chip)'};color:${feito?'#5be59a':ativo?'#9bb4ff':'var(--mut)'};font-weight:${ativo?'700':'500'}">${feito?'✓':n} ${lbl}</span>`;
+  const seta='<span style="color:#3d4a68">›</span>';
+  el.innerHTML=[
+    p(1,'Lista'+(RAW.length?' ('+RAW.length+')':''),RAW.length>0,!RAW.length,"document.getElementById('file').click()"),
+    p(2,'Triar'+(favs?' ('+favs+'★)':''),favs>0,RAW.length>0&&!favs,"setView('all')"),
+    p(3,'Diligência'+(favs?' '+dilOk+'/'+favs:''),favs>0&&dilOk===favs,favs>0&&dilOk<favs,"setView('fav')"),
+    p(4,'Lance'+(favs?' '+comTeto+'/'+favs:''),favs>0&&comTeto===favs&&comTeto>0,favs>0&&dilOk===favs&&comTeto<favs,"setView('fav')")
+  ].join(' '+seta+' ');
+}
+function setView(v){if(_map){_map.remove();_map=null;_mapLayer=null;}VIEW=v;document.querySelectorAll('#viewTabs button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));render();}
 function setPrazo(id,val){FAVMETA[id]=FAVMETA[id]||{id};FAVMETA[id].prazo=val;saveLS('fav_meta',FAVMETA);render();if(modalbg.style.display==='flex'&&window._cur&&window._cur.id===id)drawModal();}
 function renderFavorites(p){
   const ids=Object.keys(FIN).filter(k=>FIN[k]);
@@ -793,24 +842,42 @@ function fillBairros(){
 }
 function setAllTipos(v){document.querySelectorAll('.tp').forEach(c=>c.checked=v);applyFilters();}
 function setAllModal(v){document.querySelectorAll('.md').forEach(c=>c.checked=v);applyFilters();}
-function applyFilters(){if(!RAW.length)return;const cid=fCidade.value,bai=fBairro.value,vmax=+fValor.value||Infinity;const tps=[...document.querySelectorAll('.tp:checked')].map(x=>x.value);const mdEls=document.querySelectorAll('.md');const mds=[...document.querySelectorAll('.md:checked')].map(x=>x.value);FILTERED=RAW.filter(r=>(!cid||r.cidadeN===cid)&&(!bai||normCity(r.bairro)===bai)&&r.preco<=vmax&&tps.includes(r.tipo)&&(!mdEls.length||mds.includes(r.modal)));render();}
+function applyFilters(){if(!RAW.length)return;const cid=fCidade.value,bai=fBairro.value,vmax=+fValor.value||Infinity;
+  const q=normCity((document.getElementById('busca')||{}).value||'');const tps=[...document.querySelectorAll('.tp:checked')].map(x=>x.value);const mdEls=document.querySelectorAll('.md');const mds=[...document.querySelectorAll('.md:checked')].map(x=>x.value);FILTERED=RAW.filter(r=>(!cid||r.cidadeN===cid)&&(!bai||normCity(r.bairro)===bai)&&r.preco<=vmax&&tps.includes(r.tipo)&&(!mdEls.length||mds.includes(r.modal))
+    &&(!q||normCity((r.endereco||'')+' '+(r.bairro||'')+' '+(r.cidade||'')+' '+(r.id||'')+' '+(r.tipo||'')).includes(q)));render();}
 function recalc(){render();if(modalbg.style.display==='flex')drawModal();if(typeof cloudSave==='function')cloudSave();}
 function render(){const _mainEl=document.querySelector('.main'),_sc=_mainEl?_mainEl.scrollTop:0;const _restore=()=>{if(_mainEl)_mainEl.scrollTop=_sc;};
   const p=P();FILTERED.forEach(r=>{const a=avistaSeries(r,p).slice(-1)[0];r._luc=a.ll;r._roi=calc(r,p).investAvista?a.ll/calc(r,p).investAvista:0;r._far=farol(r,p);r._lance=lanceMax(r,p).lance;});FILTERED.sort((x,y)=>SORT.dir*((x[SORT.k]??-1e18)>(y[SORT.k]??-1e18)?1:-1));
-  updateFavTab();updateShareTab();
-  if(VIEW==='painel'){renderPainel();_restore();return;}
-  if(VIEW==='map'){renderMapa();return;}
+  updateFavTab();updateShareTab();renderSubTabs();renderTrilha();
   if(VIEW==='shared'){renderShared();_restore();return;}
-  if(VIEW==='fav'){renderFavorites(p);_restore();return;}
+  if(VIEW==='fav'){
+    if(SUB.fav==='painel'){renderPainel();_restore();return;}
+    if(SUB.fav==='mapa'){window._mapAll=false;renderMapa();return;}
+    renderFavorites(p);_restore();return;}
+  if(VIEW==='all'&&SUB.all==='mapa'){window._mapAll=true;renderMapa();return;}
   const n=FILTERED.length,avgD=n?FILTERED.reduce((s,r)=>s+r.desc,0)/n:0,best=n?Math.max(...FILTERED.map(r=>r.desc)):0,fin=Object.keys(FIN).filter(k=>FIN[k]).length;
   stats.innerHTML=[['Imóveis',n],['Desconto médio',avgD.toFixed(1)+'%'],['Maior desconto',best.toFixed(1)+'%'],['Favoritos',fin]].map(s=>`<div class="stat">${s[0]}<b>${s[1]}</b></div>`).join('');
   if(!n){tableWrap.innerHTML=RAW.length
       ?'<div class="empty">Nenhum imóvel no filtro.<br><span style="font-size:12px">Afrouxe os filtros (cidade, bairro, valor, tipos, modalidade) ou clique em <b>todos</b> nos checkboxes.</span></div>'
       :'<div class="empty">Nenhum dado carregado.<br>Baixe a lista em <a href="https://venda-imoveis.caixa.gov.br/sistema/download-lista.asp" target="_blank">download-lista.asp</a> e carregue aqui.</div>';
     finbar.style.display='none';_restore();return;}
-  const cols=[['#',''],['cidade','Cidade'],['tipo','Tipo'],['bairro','Bairro'],['preco','Preço'],['aval','Avaliação'],['desc','Desc.%'],['_luc','Lucro Líq.'],['_roi','ROI'],['_lance','Lance máx.'],['modal','Modalidade'],['fin','Fin.'],['_far','Farol'],['sel','★']];
-  let h='<table class="mono"><thead><tr>'+cols.map(c=>`<th onclick="sortBy('${c[0]}')">${c[1]}</th>`).join('')+'</tr></thead><tbody>';
-  FILTERED.forEach((r,i)=>{const fc=r._far.verd,acima=r.preco>r._lance;h+=`<tr class="${LASTVIEW===r.id?'viewed':''}" onclick="openDetail('${r.id}')"><td>${i+1}${POV[r.id]?' ⚙':''}</td><td>${r.cidade}</td><td>${r.tipo}</td><td>${r.bairro}</td><td class="rt">${fmt(r.preco)}</td><td class="rt">${fmt(r.aval)}</td><td class="rt"><span class="pill ${r.desc>=45?'g':r.desc>=40?'y':''}">${r.desc.toFixed(1)}%</span></td><td class="rt ${r._luc<0?'neg':''}">${fmt(r._luc)}</td><td class="rt">${pct(r._roi)}</td><td class="rt ${acima?'neg':''}" title="${acima?'arrematação acima do teto':'dentro do teto'}">${fmt(r._lance)}${acima?' ⛔':''}</td><td>${r.modal}</td><td>${r.fin==='Sim'?'<span class="pill g">Sim</span>':'Não'}</td><td><span class="pill ${fc==='VERDE'?'g':fc==='AMARELO'?'y':'r'}">${fc}</span></td><td onclick="event.stopPropagation();toggleFin('${r.id}')">${FIN[r.id]?'⭐':'☆'}</td></tr>`;});
+  const TODAS=[['#',''],['cidade','Cidade'],['tipo','Tipo'],['bairro','Bairro'],['preco','Preço'],['aval','Avaliação'],['desc','Desc.%'],['_luc','Lucro Líq.'],['_roi','ROI'],['_lance','Lance máx.'],['modal','Modalidade'],['fin','Fin.'],['_far','Farol'],['sel','★']];
+  const ESSENC=['#','cidade','tipo','bairro','preco','desc','_roi','_lance','_far','sel'];
+  const cols=COLMODE==='triagem'?TODAS.filter(c=>ESSENC.includes(c[0])):TODAS;
+  const mostra=k=>cols.some(c=>c[0]===k);
+  let h=`<div class="muted" style="margin-bottom:6px;font-size:11.5px">colunas: <button class="ghost" style="padding:2px 9px;font-size:11px;${COLMODE==='triagem'?'background:var(--accent);color:#fff':''}" onclick="setColMode('triagem')">triagem</button> <button class="ghost" style="padding:2px 9px;font-size:11px;${COLMODE==='analise'?'background:var(--accent);color:#fff':''}" onclick="setColMode('analise')">análise (todas)</button></div>`;
+  h+='<table class="mono"><thead><tr>'+cols.map(c=>`<th onclick="sortBy('${c[0]}')">${c[1]}</th>`).join('')+'</tr></thead><tbody>';
+  FILTERED.forEach((r,i)=>{const fc=r._far.verd,acima=r.preco>r._lance;
+    let td='';
+    td+=`<td>${i+1}${POV[r.id]?' ⚙':''}</td><td>${r.cidade}</td><td>${r.tipo}</td><td>${r.bairro}</td><td class="rt">${fmt(r.preco)}</td>`;
+    if(mostra('aval'))td+=`<td class="rt">${fmt(r.aval)}</td>`;
+    td+=`<td class="rt"><span class="pill ${r.desc>=45?'g':r.desc>=40?'y':''}">${r.desc.toFixed(1)}%</span></td>`;
+    if(mostra('_luc'))td+=`<td class="rt ${r._luc<0?'neg':''}">${fmt(r._luc)}</td>`;
+    td+=`<td class="rt">${pct(r._roi)}</td><td class="rt ${acima?'neg':''}" title="${acima?'arrematação acima do teto':'dentro do teto'}">${fmt(r._lance)}${acima?' ⛔':''}</td>`;
+    if(mostra('modal'))td+=`<td>${r.modal}</td>`;
+    if(mostra('fin'))td+=`<td>${r.fin==='Sim'?'<span class="pill g">Sim</span>':'Não'}</td>`;
+    td+=`<td><span class="pill ${fc==='VERDE'?'g':fc==='AMARELO'?'y':'r'}">${fc}</span></td><td onclick="event.stopPropagation();toggleFin('${r.id}')">${FIN[r.id]?'⭐':'☆'}</td>`;
+    h+=`<tr class="${LASTVIEW===r.id?'viewed':''}" onclick="openDetail('${r.id}')">${td}</tr>`;});
   h+='</tbody></table>';tableWrap.innerHTML=h;const c=Object.keys(FIN).filter(k=>FIN[k]).length;finbar.style.display=c?'flex':'none';finCount.textContent=c;_restore();}
 function sortBy(k){if(k==='sel'||k==='#')return;SORT.dir=SORT.k===k?-SORT.dir:-1;SORT.k=k;render();}
 function toggleFin(id){FIN[id]=!FIN[id];if(FIN[id]){const row=RAW.find(r=>r.id===id);if(row){const snap=snapFromRow(row,window._dg||'');snap.prevPreco=null;snap.firstDg=window._dg||'';snap.prazo=(FAVMETA[id]&&FAVMETA[id].prazo)||'';FAVMETA[id]=snap;}}else{delete FAVMETA[id];}saveLS('fav_meta',FAVMETA);saveLS('fin_sel',FIN);render();}
@@ -818,7 +885,7 @@ function clearFin(){if(!confirm('Remover TODOS os favoritos? (o checklist e as p
 
 // ---------- detalhe ----------
 let CURTAB='resumo';
-function openDetail(id){let r=RAW.find(x=>x.id===id);if(!r){const m=FAVMETA[id];if(m&&m.preco!=null)r=rowFromMeta(m);}if(!r)r=sharedRowFor(id);if(!r){alert('Sem dados deste imóvel na lista atual. Carregue uma lista que o contenha para ver a análise completa.');return;}window._cur=r;LASTVIEW=id;CURTAB='resumo';drawModal();modalbg.style.display='flex';}
+function openDetail(id){let r=RAW.find(x=>x.id===id);if(!r){const m=FAVMETA[id];if(m&&m.preco!=null)r=rowFromMeta(m);}if(!r)r=sharedRowFor(id);if(!r){alert('Sem dados deste imóvel na lista atual. Carregue uma lista que o contenha para ver a análise completa.');return;}window._cur=r;LASTVIEW=id;CURTAB='resumo';CURSEC='decisao';drawModal();modalbg.style.display='flex';}
 function closeModal(){
   modalbg.style.display='none';
   render();                                   // atualiza ★/dados e marca a linha onde você parou
@@ -830,11 +897,25 @@ function closeModal(){
 }
 function toggleFinDetail(id){toggleFin(id);drawModal();}
 modalbg.addEventListener('click',e=>{if(e.target===modalbg)closeModal();});
-function setTab(t){CURTAB=t;drawModal();}
+function setTab(t){CURTAB=t;CURSEC=secDe(t);drawModal();}
 const TABS=[['resumo','Resumo & Farol'],['comp','Comparáveis'],['debitos','Débitos'],['reforma','Reforma'],['cen','Cenários'],['calc','Cálculos'],['avista','À Vista'],['price','PRICE'],['sac','SAC'],['result','Resultados'],['ck','Checklist'],['crono','🗓 Cronograma']];
-const TAB_GROUPS=[['Decisão',['resumo']],['Preparação',['comp','debitos','reforma','cen']],['Financeiro',['calc','avista','price','sac','result']],['Diligência',['ck','crono']]];
+// 3 seções principais, cada uma com suas sub-abas
+const SECOES=[
+  ['decisao','① Decisão',['resumo']],
+  ['analise','② Análise',['comp','debitos','reforma','cen','calc','avista','price','sac','result']],
+  ['diligencia','③ Diligência',['ck','crono']]
+];
+let CURSEC='decisao';
 function tabLabel(k){const t=TABS.find(x=>x[0]===k);return t?t[1]:k;}
-function renderTabs(){return '<div class="tabs">'+TAB_GROUPS.map(g=>'<span class="tabgrp"><span class="tabgl">'+g[0]+'</span>'+g[1].map(k=>`<button class="${CURTAB===k?'on':''}" onclick="setTab('${k}')">${tabLabel(k)}</button>`).join('')+'</span>').join('')+'</div>';}
+function secDe(k){const s=SECOES.find(x=>x[2].includes(k));return s?s[0]:'decisao';}
+function setSec(id){CURSEC=id;const sec=SECOES.find(x=>x[0]===id);if(sec&&!sec[2].includes(CURTAB))CURTAB=sec[2][0];drawModal();}
+function renderTabs(){
+  const sec=SECOES.find(x=>x[0]===CURSEC)||SECOES[0];
+  let h='<div class="tabs" style="margin-bottom:6px">'+SECOES.map(x=>{
+    const n=x[0]==='diligencia'?(()=>{const st=ckStats(window._cur,EP());return st.bloq?` <span class="pill r" style="font-size:9px">${st.bloq}</span>`:' <span class="pill g" style="font-size:9px">ok</span>';})():'';
+    return `<button class="${CURSEC===x[0]?'on':''}" style="padding:7px 15px;font-size:13.5px" onclick="setSec('${x[0]}')">${x[1]}${n}</button>`;}).join('')+'</div>';
+  if(sec[2].length>1)h+='<div class="tabs" style="margin-top:0">'+sec[2].map(k=>`<button class="${CURTAB===k?'on':''}" style="padding:4px 10px;font-size:12px" onclick="setTab('${k}')">${tabLabel(k)}</button>`).join('')+'</div>';
+  return h;}
 
 function drawModal(){
   const r=window._cur,p=EP();const c=calc(r,p),fr=farol(r,p);
@@ -1373,7 +1454,7 @@ function copyShared(id){
   saveLS('ck_state',CKST);saveLS('far_state',FAR);saveLS('prem_over',POV);saveLS('fav_meta',FAVMETA);saveLS('fin_sel',FIN);saveLS('debt',DEBT);saveLS('comp',COMP);saveLS('ref',REF);saveLS('cen',CEN);saveLS('aix',AIX);saveLS('origem',ORIGEM);saveLS('lance',LANCE);
   render();alert('Copiado para os seus favoritos.');
 }
-function updateShareTab(){const n=Object.keys(SHARED).length;const b=document.querySelector('#viewTabs [data-v="shared"]');if(b)b.textContent='🤝 Compartilhados ('+n+')';}
+function updateShareTab(){const n=Object.keys(SHARED).length;const b=document.querySelector('#viewTabs [data-v="shared"]');if(b)b.textContent='🤝 Grupo ('+n+')';}
 function startSharedPoll(){if(_sharePoll)clearInterval(_sharePoll);_sharePoll=setInterval(()=>{if(!document.hidden&&SB&&USER)sharedLoad(true);},30000);}
 function updateGate(){
   const authed=!!(SB&&USER);
@@ -1413,7 +1494,7 @@ async function sbInit(){
     if(USER&&USER.id!==was){_loaded=false;await cloudLoad();}
   });
 }
-sbInit();
+restoreUI();sbInit();
 </script>
 </body>
 </html>
