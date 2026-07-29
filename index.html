@@ -203,7 +203,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
 <script src="config.js"></script>
 <script>
-let RAW=[], FILTERED=[], SORT={k:'desc',dir:-1};
+let RAW=[], FILTERED=[], SORT={k:'_score',dir:-1};
 const FIN=loadLS('fin_sel',{}), CKST=loadLS('ck_state',{}), FAR=loadLS('far_state',{}), POV=loadLS('prem_over',{}), FAVMETA=loadLS('fav_meta',{}), DEBT=loadLS('debt',{}), COMP=loadLS('comp',{}), REF=loadLS('ref',{}), CEN=loadLS('cen',{}), AIX=loadLS('aix',{}), ORIGEM=loadLS('origem',{}), LANCE=loadLS('lance',{}), GEO=loadLS('geo',{}), GEOB=loadLS('geob',{});
 let _map=null,_mapLayer=null,_geoBusy=false;
 function gmapsUrl(r){return 'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent([r.endereco,r.bairro,r.cidade,r.uf,'Brasil'].filter(Boolean).join(', '));}
@@ -432,6 +432,28 @@ function renderFavorites(p){
   h+='</tbody></table>';tableWrap.innerHTML=h;renderFinbar();
 }
 
+// ---------- Score de triagem (Explorar): compara o imóvel com o conjunto filtrado ----------
+function ctxTriagem(rows){                       // referências do conjunto (mediana R$/m² e desconto)
+  const psm=rows.filter(r=>r.area>0&&r.preco>0).map(r=>r.preco/r.area).sort((a,b)=>a-b);
+  const med=psm.length?psm[Math.floor(psm.length/2)]:0;
+  return {medPSM:med};
+}
+function scoreTriagem(r,p,ctx){
+  const PR=(p.preco!=null?p.preco:r.preco);
+  const roi=r._roi||0, folga=PR>0?((r._lance||0)-PR)/PR:0;
+  const vv=venda(r,p), descVenda=vv>0?1-PR/vv:0;
+  const pRet=roi>=.40?30:roi>=.30?24:roi>=.20?17:roi>=.12?10:roi>=.05?4:0;
+  const pFol=folga>=.25?22:folga>=.15?18:folga>=.05?11:folga>0?5:0;
+  const pDes=descVenda>=.45?18:descVenda>=.35?14:descVenda>=.25?9:descVenda>=.15?4:0;
+  // relativo ao conjunto: preço por m² abaixo da mediana dos pares
+  let pPSM=0,psmRel=null;
+  if(ctx.medPSM&&r.area>0&&r.preco>0){psmRel=(r.preco/r.area)/ctx.medPSM;
+    pPSM=psmRel<=.6?15:psmRel<=.75?12:psmRel<=.9?8:psmRel<=1?4:0;}
+  const pMod=/direta/i.test(r.modal||'')?8:/licita/i.test(r.modal||'')?5:2;   // sem leiloeiro vale mais
+  const pFin=r.fin==='Sim'?7:0;                                              // financiável = mais liquidez
+  const sc=Math.max(0,Math.min(100,pRet+pFol+pDes+pPSM+pMod+pFin));
+  return {score:sc,psmRel,partes:{Retorno:pRet,Folga:pFol,Desconto:pDes,'R$/m²':pPSM,Modalidade:pMod,Financiável:pFin}};
+}
 // ---------- Score de oportunidade e ranking da carteira ----------
 function oportunidadeScore(r,p){
   const c=calc(r,p),av=avistaSeries(r,p).slice(-1)[0];
@@ -871,7 +893,8 @@ function applyFilters(){if(!RAW.length)return;const cid=fCidade.value,bai=fBairr
     &&(!q||normCity((r.endereco||'')+' '+(r.bairro||'')+' '+(r.cidade||'')+' '+(r.id||'')+' '+(r.tipo||'')).includes(q)));render();}
 function recalc(){render();if(modalbg.style.display==='flex')drawModal();if(typeof cloudSave==='function')cloudSave();}
 function render(){const _mainEl=document.querySelector('.main'),_sc=_mainEl?_mainEl.scrollTop:0;const _restore=()=>{if(_mainEl)_mainEl.scrollTop=_sc;};
-  const p=P();FILTERED.forEach(r=>{const a=avistaSeries(r,p).slice(-1)[0];r._luc=a.ll;r._roi=calc(r,p).investAvista?a.ll/calc(r,p).investAvista:0;r._far=farol(r,p);r._lance=lanceMax(r,p).lance;});FILTERED.sort((x,y)=>SORT.dir*((x[SORT.k]??-1e18)>(y[SORT.k]??-1e18)?1:-1));
+  const p=P();FILTERED.forEach(r=>{const a=avistaSeries(r,p).slice(-1)[0];r._luc=a.ll;r._roi=calc(r,p).investAvista?a.ll/calc(r,p).investAvista:0;r._far=farol(r,p);r._lance=lanceMax(r,p).lance;});
+  const _ctx=ctxTriagem(FILTERED);FILTERED.forEach(r=>{const t=scoreTriagem(r,EPof(r),_ctx);r._score=t.score;r._sct=t;});FILTERED.sort((x,y)=>SORT.dir*((x[SORT.k]??-1e18)>(y[SORT.k]??-1e18)?1:-1));
   updateFavTab();updateShareTab();renderSubTabs();renderTrilha();
   if(VIEW==='shared'){renderShared();_restore();return;}
   if(VIEW==='fav'){
@@ -885,15 +908,20 @@ function render(){const _mainEl=document.querySelector('.main'),_sc=_mainEl?_mai
       ?'<div class="empty">Nenhum imóvel no filtro.<br><span style="font-size:12px">Afrouxe os filtros (cidade, bairro, valor, tipos, modalidade) ou clique em <b>todos</b> nos checkboxes.</span></div>'
       :'<div class="empty">Nenhum dado carregado.<br>Baixe a lista em <a href="https://venda-imoveis.caixa.gov.br/sistema/download-lista.asp" target="_blank">download-lista.asp</a> e carregue aqui.</div>';
     finbar.style.display='none';_restore();return;}
-  const TODAS=[['#',''],['cidade','Cidade'],['tipo','Tipo'],['bairro','Bairro'],['preco','Preço'],['aval','Avaliação'],['desc','Desc.%'],['_luc','Lucro Líq.'],['_roi','ROI'],['_lance','Lance máx.'],['modal','Modalidade'],['fin','Fin.'],['_far','Farol'],['sel','★']];
-  const ESSENC=['#','cidade','tipo','bairro','preco','desc','_roi','_lance','_far','sel'];
+  const TODAS=[['#',''],['_score','Score'],['cidade','Cidade'],['tipo','Tipo'],['bairro','Bairro'],['preco','Preço'],['aval','Avaliação'],['desc','Desc.%'],['_luc','Lucro Líq.'],['_roi','ROI'],['_lance','Lance máx.'],['modal','Modalidade'],['fin','Fin.'],['_far','Farol'],['sel','★']];
+  const ESSENC=['#','_score','cidade','tipo','bairro','preco','desc','_roi','_lance','_far','sel'];
   const cols=COLMODE==='triagem'?TODAS.filter(c=>ESSENC.includes(c[0])):TODAS;
   const mostra=k=>cols.some(c=>c[0]===k);
   let h=`<div class="muted" style="margin-bottom:6px;font-size:11.5px">colunas: <button class="ghost" style="padding:2px 9px;font-size:11px;${COLMODE==='triagem'?'background:var(--accent);color:#fff':''}" onclick="setColMode('triagem')">triagem</button> <button class="ghost" style="padding:2px 9px;font-size:11px;${COLMODE==='analise'?'background:var(--accent);color:#fff':''}" onclick="setColMode('analise')">análise (todas)</button></div>`;
-  h+='<table class="mono"><thead><tr>'+cols.map(c=>`<th onclick="sortBy('${c[0]}')">${c[1]}</th>`).join('')+'</tr></thead><tbody>';
+  const NUM=['preco','aval','desc','_luc','_roi','_lance','_score'];
+  h+='<table class="mono"><thead><tr>'+cols.map(c=>`<th class="${NUM.includes(c[0])?'rt':''}" onclick="sortBy('${c[0]}')">${c[1]}${SORT.k===c[0]?(SORT.dir<0?' ▾':' ▴'):''}</th>`).join('')+'</tr></thead><tbody>';
   FILTERED.forEach((r,i)=>{const fc=r._far.verd,acima=r.preco>r._lance;
     let td='';
-    td+=`<td>${i+1}${POV[r.id]?' ⚙':''}</td><td>${r.cidade}</td><td>${r.tipo}</td><td>${r.bairro}</td><td class="rt">${fmt(r.preco)}</td>`;
+    const sc=r._score||0,scor=sc>=60?'#5be59a':sc>=40?'#f4d35e':sc>=20?'#e8a87c':'#8b93a7';
+    const dica=Object.entries((r._sct||{partes:{}}).partes).filter(([,v])=>v).map(([k,v])=>k+' +'+v).join(' · ');
+    td+=`<td>${i+1}${POV[r.id]?' ⚙':''}</td>`;
+    td+=`<td class="rt" title="${esc(dica)}${r._sct&&r._sct.psmRel?' · R$/m² = '+(r._sct.psmRel*100).toFixed(0)+'% da mediana do filtro':''}"><b style="color:${scor}">${sc}</b><div style="height:3px;background:#243150;border-radius:2px;margin-top:2px"><div style="width:${sc}%;height:100%;background:${scor};border-radius:2px"></div></div></td>`;
+    td+=`<td>${r.cidade}</td><td>${r.tipo}</td><td>${r.bairro}</td><td class="rt">${fmt(r.preco)}</td>`;
     if(mostra('aval'))td+=`<td class="rt">${fmt(r.aval)}</td>`;
     td+=`<td class="rt"><span class="pill ${r.desc>=45?'g':r.desc>=40?'y':''}">${r.desc.toFixed(1)}%</span></td>`;
     if(mostra('_luc'))td+=`<td class="rt ${r._luc<0?'neg':''}">${fmt(r._luc)}</td>`;
