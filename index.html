@@ -712,13 +712,21 @@ function renderShared(){
   const meus=ids.filter(id=>USER&&SHARED[id].owner_id===USER.id).length;
   stats.innerHTML=[['Compartilhados',ids.length],['Publicados por mim',meus],['De outros',ids.length-meus],['Sincroniza',"30s"]].map(s=>`<div class="stat">${s[0]}<b>${s[1]}</b></div>`).join('');
   if(!ids.length){tableWrap.innerHTML='<div class="empty">Nada compartilhado ainda.<br>Em <b>★ Carteira → ☰ Lista</b>, clique em <b>🤝</b> para publicar um imóvel — todos do grupo veem e editam junto.</div>';finbar.style.display='none';return;}
-  let h='<div class="muted" style="margin-bottom:6px">Dossiês <b>colaborativos</b>: qualquer pessoa do grupo edita e as mudanças aparecem para todos (atualiza a cada 30s). <a href="#" onclick="sharedLoad();return false">atualizar agora</a></div>'
-   +'<table class="mono"><thead><tr><th>Imóvel</th><th>Publicado por</th><th>Última edição</th><th class="rt">Preço</th><th>Farol</th><th></th></tr></thead><tbody>';
-  ids.forEach(id=>{const s=SHARED[id];const row=RAW.find(x=>x.id===id)||sharedRowFor(id);
+  // ranqueia os dossiês compartilhados pelo mesmo score da carteira
+  const itens=ids.map(id=>{const row=RAW.find(x=>x.id===id)||sharedRowFor(id);
+    const o=row?oportunidadeScore(row,EPof(row)):null;return {id,row,o,score:o?o.score:-1};});
+  itens.sort((a,b)=>b.score-a.score);
+  let h='<div class="muted" style="margin-bottom:6px">Dossiês <b>colaborativos</b>: qualquer pessoa do grupo edita e as mudanças aparecem para todos (atualiza a cada 30s). <a href="#" onclick="sharedLoad();return false">atualizar agora</a> · ordenado pelo <b>score</b>, o mesmo da Carteira</div>'
+   +'<table class="mono"><thead><tr><th>#</th><th class="rt">Score</th><th>Imóvel</th><th>Publicado por</th><th>Última edição</th><th class="rt">Preço</th><th>Farol</th><th></th></tr></thead><tbody>';
+  itens.forEach((it,i)=>{const id=it.id,s=SHARED[id],row=it.row;
     const dono=(s.owner_email||'').split('@')[0];const editor=(s.updated_by_email||'').split('@')[0];
     let farolCell='<span class="muted">—</span>';
     if(row){const fr=farol(row,EPof(row));farolCell=`<span class="pill ${fr.verd==='VERDE'?'g':fr.verd==='AMARELO'?'y':'r'}">${fr.verd}</span>`;}
-    h+=`<tr class="${LASTVIEW===id?'viewed':''}" onclick="openDetail('${id}')"><td>${esc(s.titulo||id)}${FIN[id]?' ⭐':''}</td><td>${esc(dono)}${USER&&s.owner_id===USER.id?' <span class="pill g">você</span>':''}</td><td>${esc(editor)} · ${ago(s.updated_at)}</td><td class="rt">${row&&row.preco!=null?fmt(row.preco):'—'}</td><td>${farolCell}</td>
+    const sc=it.o?it.o.score:null,scor=sc>=70?'#5be59a':sc>=45?'#f4d35e':'#ff8b7d';
+    const dica=it.o?Object.entries(it.o.partes).filter(([,v])=>v).map(([k,v])=>k+' '+(v>0?'+':'')+v).join(' · '):'sem dados na lista atual';
+    h+=`<tr class="${LASTVIEW===id?'viewed':''}" onclick="openDetail('${id}')"><td><b>${i+1}º</b></td>`
+      +`<td class="rt" title="${esc(dica)}">${sc!=null?`<b style="color:${scor}">${sc}</b><div style="height:3px;background:#243150;border-radius:2px;margin-top:2px"><div style="width:${sc}%;height:100%;background:${scor};border-radius:2px"></div></div>`:'<span class="muted">—</span>'}</td>`
+      +`<td>${esc(s.titulo||id)}${FIN[id]?' ⭐':''}</td><td>${esc(dono)}${USER&&s.owner_id===USER.id?' <span class="pill g">você</span>':''}</td><td>${esc(editor)} · ${ago(s.updated_at)}</td><td class="rt">${row&&row.preco!=null?fmt(row.preco):'—'}</td><td>${farolCell}</td>
       <td onclick="event.stopPropagation()">${FIN[id]?'':'<button class="ghost" style="padding:2px 8px;font-size:11px" onclick="copyShared(\''+id+'\')">copiar</button> '}${USER&&s.owner_id===USER.id?'<button class="ghost" style="padding:2px 8px;font-size:11px" onclick="unshareProp(\''+id+'\')">✕</button>':''}</td></tr>`;});
   tableWrap.innerHTML=h+'</tbody></table>';finbar.style.display='none';
 }
