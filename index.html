@@ -407,15 +407,18 @@ function setView(v){if(_map){_map.remove();_map=null;_mapLayer=null;}VIEW=v;docu
 function setPrazo(id,val){FAVMETA[id]=FAVMETA[id]||{id};FAVMETA[id].prazo=val;saveLS('fav_meta',FAVMETA);render();if(modalbg.style.display==='flex'&&window._cur&&window._cur.id===id)drawModal();}
 function renderFavorites(p){
   const ids=Object.keys(FIN).filter(k=>FIN[k]);
-  const items=ids.map(id=>{const row=RAW.find(r=>r.id===id);const meta=FAVMETA[id]||{id};return {id,row,meta,present:!!row,data:row||meta};});
+  const rk=rankingCarteira(),posOf={},scOf={};rk.forEach(x=>{posOf[x.r.id]=x.pos;scOf[x.r.id]=x.o.score;});
+  const items=ids.map(id=>{const row=RAW.find(r=>r.id===id);const meta=FAVMETA[id]||{id};return {id,row,meta,present:!!row,data:row||meta,pos:posOf[id]||999,score:scOf[id]};});
+  items.sort((a,b)=>a.pos-b.pos);
   const online=items.filter(x=>isOnlineSale(x.data.modal));
   const fora=items.filter(x=>!x.present).length;
   const semPrazo=online.filter(x=>!x.meta.prazo).length;
   const urg=online.filter(x=>{const du=daysUntil(x.meta.prazo);return du!=null&&du<=3;}).length;
   stats.innerHTML=[['Favoritos',items.length],['Fora da lista',fora],['Online s/ prazo',semPrazo],['Prazo urgente/vencido',urg]].map(s=>`<div class="stat">${s[0]}<b>${s[1]}</b></div>`).join('');
   if(!items.length){tableWrap.innerHTML='<div class="empty">Nenhum favorito ainda.<br>Vá em <b>🔎 Explorar</b> e marque imóveis com ★.</div>';finbar.style.display='none';return;}
-  const cols=['★','IA','🤝','Status','Cidade','Tipo','Bairro','Preço','Desc.%','Modalidade','Prazo leilão','Lance máx.','Meu teto','Farol','Abrir'];
-  let h='<div class="muted" style="margin-bottom:6px">Coluna <b>IA</b>: marque quais imóveis entram no <b>🤖 Gerar prompt IA</b> da barra abaixo (já analisados vêm com 🤖 e desmarcados). <a href="#" onclick="setAllIA(true);return false">todos</a> · <a href="#" onclick="setAllIA(false);return false">nenhum</a></div><table class="mono"><thead><tr>'+cols.map(c=>`<th>${c}</th>`).join('')+'</tr></thead><tbody>';
+  const cols=['#','Score','★','IA','🤝','Status','Cidade','Tipo','Bairro','Preço','Desc.%','Modalidade','Prazo leilão','Lance máx.','Meu teto','Farol','Abrir'];
+  let h='<div class="muted" style="margin-bottom:6px;font-size:11.5px">Ordenado pelo <b>score da carteira</b> — o mesmo do Painel e do selo 🏅 no detalhe. Passe o mouse no score para ver a composição.</div>'
+    +'<div class="muted" style="margin-bottom:6px">Coluna <b>IA</b>: marque quais imóveis entram no <b>🤖 Gerar prompt IA</b> da barra abaixo (já analisados vêm com 🤖 e desmarcados). <a href="#" onclick="setAllIA(true);return false">todos</a> · <a href="#" onclick="setAllIA(false);return false">nenhum</a></div><table class="mono"><thead><tr>'+cols.map(c=>`<th>${c}</th>`).join('')+'</tr></thead><tbody>';
   items.forEach(x=>{
     const d=x.data,on=isOnlineSale(d.modal);
     let precoCell=fmt(d.preco);
@@ -427,7 +430,10 @@ function renderFavorites(p){
     let tetoCell=_teto!=null?((_lm!=null&&_teto>_lm)?`<span class="neg">${fmt(_teto)} ⛔</span>`:fmt(_teto)):'<span class="muted">—</span>';
     if(_l.resultado&&_l.resultado!=='Não disputado')tetoCell+=`<div style="font-size:10px" class="muted">${esc(_l.resultado)}</div>`;
     if(x.present){const dec=decisao(x.row,EPof(x.row)),fr=dec.fr;farolCell=`<span class="pill ${fr.verd==='VERDE'?'g':fr.verd==='AMARELO'?'y':'r'}">${fr.verd}</span>`;lanceCell=`<span class="${dec.folga<0?'neg':''}">${fmt(dec.lance)}</span>${dec.folga<0?' ⛔':''}`;}
-    h+=`<tr class="${LASTVIEW===x.id?'viewed':''}" onclick="openDetail('${x.id}')"><td onclick="event.stopPropagation();toggleFin('${x.id}')" style="cursor:pointer">⭐</td><td onclick="event.stopPropagation()"><input type="checkbox" ${iaSelected(x.id)?'checked':''} onchange="toggleIASel('${x.id}',this.checked)" style="width:auto" title="incluir no prompt da IA">${isAnalyzed(x.id)?' <span title="já analisado pela IA">🤖</span>':''}</td><td onclick="event.stopPropagation()" style="cursor:pointer">${isShared(x.id)?`<span title="compartilhado com o grupo — editado por ${esc((SHARED[x.id].updated_by_email||'').split('@')[0])} há ${ago(SHARED[x.id].updated_at)}" onclick="setView('shared')">🤝</span>`:`<span title="compartilhar com o grupo" onclick="shareProp('${x.id}')" style="opacity:.45">🤝</span>`}</td><td>${status}</td><td>${d.cidade||'—'}</td><td>${d.tipo||'—'}</td><td>${d.bairro||'—'}</td><td class="rt">${precoCell}</td><td class="rt">${d.desc!=null?(+d.desc).toFixed(1):'—'}%</td><td>${d.modal||'—'}</td><td>${prazoCell}</td><td class="rt">${lanceCell}</td><td class="rt">${tetoCell}</td><td>${farolCell}</td><td>🔍</td></tr>`;
+    const sc=x.score!=null?x.score:0,scor=sc>=70?'#5be59a':sc>=45?'#f4d35e':'#ff8b7d';
+    h+=`<tr class="${LASTVIEW===x.id?'viewed':''}" onclick="openDetail('${x.id}')"><td><b>${x.pos<999?x.pos+'º':'—'}</b></td>`
+      +`<td class="rt" title="${esc(Object.entries(((rk.find(y=>y.r.id===x.id)||{o:{partes:{}}}).o.partes)).filter(([,v])=>v).map(([k,v])=>k+' '+(v>0?'+':'')+v).join(' · '))}"><b style="color:${scor}">${x.score!=null?sc:'—'}</b><div style="height:3px;background:#243150;border-radius:2px;margin-top:2px"><div style="width:${sc}%;height:100%;background:${scor};border-radius:2px"></div></div></td>`
+      +`<td onclick="event.stopPropagation();toggleFin('${x.id}')" style="cursor:pointer">⭐</td><td onclick="event.stopPropagation()"><input type="checkbox" ${iaSelected(x.id)?'checked':''} onchange="toggleIASel('${x.id}',this.checked)" style="width:auto" title="incluir no prompt da IA">${isAnalyzed(x.id)?' <span title="já analisado pela IA">🤖</span>':''}</td><td onclick="event.stopPropagation()" style="cursor:pointer">${isShared(x.id)?`<span title="compartilhado com o grupo — editado por ${esc((SHARED[x.id].updated_by_email||'').split('@')[0])} há ${ago(SHARED[x.id].updated_at)}" onclick="setView('shared')">🤝</span>`:`<span title="compartilhar com o grupo" onclick="shareProp('${x.id}')" style="opacity:.45">🤝</span>`}</td><td>${status}</td><td>${d.cidade||'—'}</td><td>${d.tipo||'—'}</td><td>${d.bairro||'—'}</td><td class="rt">${precoCell}</td><td class="rt">${d.desc!=null?(+d.desc).toFixed(1):'—'}%</td><td>${d.modal||'—'}</td><td>${prazoCell}</td><td class="rt">${lanceCell}</td><td class="rt">${tetoCell}</td><td>${farolCell}</td><td>🔍</td></tr>`;
   });
   h+='</tbody></table>';tableWrap.innerHTML=h;renderFinbar();
 }
