@@ -145,22 +145,26 @@
     </div></div>
     <div class="sec closed" id="secPrem"><h3 onclick="toggleSec('secPrem')"><span class="ar">▸</span>3 · Premissas globais</h3><div class="secbody">
     <div class="row2">
-      <div><label>Venda % aval.</label><input type="number" step="1" id="pVendaPct" value="100"></div>
-      <div><label>Prazo venda (m)</label><input type="number" id="pPrazoVenda" value="12"></div>
-      <div><label>Juros a.a. %</label><input type="number" step="0.01" id="pJuros" value="11.49"></div>
-      <div><label>Entrada %</label><input type="number" step="1" id="pEntrada" value="10"></div>
-      <div><label>ITBI %</label><input type="number" step="0.1" id="pItbi" value="3"></div>
-      <div><label>Corretor %</label><input type="number" step="0.1" id="pCorretor" value="5"></div>
-      <div><label>Imposto %</label><input type="number" step="1" id="pImposto" value="15"></div>
-      <div><label>Prazo fin. (m)</label><input type="number" id="pPrazo" value="360"></div>
-      <div><label>Registro R$</label><input type="number" id="pRegistro" value="3800"></div>
-      <div><label>Reforma R$</label><input type="number" id="pReforma" value="15000"></div>
-      <div><label>Condomínio/mês</label><input type="number" id="pCond" value="350"></div>
-      <div><label>IPTU/mês</label><input type="number" id="pIptu" value="80"></div>
-      <div><label>Desocup. R$</label><input type="number" id="pDesoc" value="5000"></div>
-      <div><label>TMA % a.a.</label><input type="number" step="0.1" id="pTMA" value="12"></div>
+      <div><label>Venda % aval.</label><input type="number" step="1" id="pVendaPct" oninput="autoRecalc()" value="100"></div>
+      <div><label>Prazo venda (m)</label><input type="number" id="pPrazoVenda" oninput="autoRecalc()" value="12"></div>
+      <div><label>Juros a.a. %</label><input type="number" step="0.01" id="pJuros" oninput="autoRecalc()" value="11.49"></div>
+      <div><label>Entrada %</label><input type="number" step="1" id="pEntrada" oninput="autoRecalc()" value="10"></div>
+      <div><label>ITBI %</label><input type="number" step="0.1" id="pItbi" oninput="autoRecalc()" value="3"></div>
+      <div><label>Corretor %</label><input type="number" step="0.1" id="pCorretor" oninput="autoRecalc()" value="5"></div>
+      <div><label>Imposto %</label><input type="number" step="1" id="pImposto" oninput="autoRecalc()" value="15"></div>
+      <div><label>Prazo fin. (m)</label><input type="number" id="pPrazo" oninput="autoRecalc()" value="360"></div>
+      <div><label>Registro R$</label><input type="number" id="pRegistro" oninput="autoRecalc()" value="3800"></div>
+      <div><label>Reforma R$</label><input type="number" id="pReforma" oninput="autoRecalc()" value="15000"></div>
+      <div><label>Condomínio/mês</label><input type="number" id="pCond" oninput="autoRecalc()" value="350"></div>
+      <div><label>IPTU/mês</label><input type="number" id="pIptu" oninput="autoRecalc()" value="80"></div>
+      <div><label>Desocup. R$</label><input type="number" id="pDesoc" oninput="autoRecalc()" value="5000"></div>
+      <div><label>TMA % a.a.</label><input type="number" step="0.1" id="pTMA" oninput="autoRecalc()" value="12"></div>
     </div>
-    <button class="ghost" style="width:100%;margin-top:10px" onclick="recalc()">Recalcular</button>
+    <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
+      <button class="ghost" style="flex:1" onclick="recalc()">Recalcular agora</button>
+      <span id="recStatus" class="muted" style="font-size:11px;min-width:96px"></span>
+    </div>
+    <div class="muted" style="margin-top:6px;font-size:11px">Alterar qualquer premissa acima <b>recalcula a lista, o farol e os scores automaticamente</b>.</div>
     <div class="muted" style="margin-top:8px">Terreno: sem condomínio/reforma. Casa: sem condomínio. "Venda % aval." simula revenda abaixo do laudo.</div>
     </div></div>
   </aside>
@@ -905,6 +909,16 @@ function setAllModal(v){document.querySelectorAll('.md').forEach(c=>c.checked=v)
 function applyFilters(){if(!RAW.length)return;const cid=fCidade.value,bai=fBairro.value,vmax=+fValor.value||Infinity;
   const q=normCity((document.getElementById('busca')||{}).value||'');const tps=[...document.querySelectorAll('.tp:checked')].map(x=>x.value);const mdEls=document.querySelectorAll('.md');const mds=[...document.querySelectorAll('.md:checked')].map(x=>x.value);FILTERED=RAW.filter(r=>(!cid||r.cidadeN===cid)&&(!bai||normCity(r.bairro)===bai)&&r.preco<=vmax&&tps.includes(r.tipo)&&(!mdEls.length||mds.includes(r.modal))
     &&(!q||normCity((r.endereco||'')+' '+(r.bairro||'')+' '+(r.cidade||'')+' '+(r.id||'')+' '+(r.tipo||'')).includes(q)));render();}
+let _recTimer=null;
+function autoRecalc(){
+  clearTimeout(_recTimer);
+  const el=document.getElementById('recStatus');if(el){el.textContent='recalculando…';el.style.color='#f4d35e';}
+  _recTimer=setTimeout(()=>{
+    const t0=performance.now();recalc();
+    if(el){el.textContent='✓ atualizado ('+Math.round(performance.now()-t0)+'ms)';el.style.color='#5be59a';
+      setTimeout(()=>{if(el.textContent.startsWith('✓'))el.textContent='';},2500);}
+  },400);
+}
 function recalc(){render();if(modalbg.style.display==='flex')drawModal();if(typeof cloudSave==='function')cloudSave();}
 function render(){const _mainEl=document.querySelector('.main'),_sc=_mainEl?_mainEl.scrollTop:0;const _restore=()=>{if(_mainEl)_mainEl.scrollTop=_sc;};
   const p=P();FILTERED.forEach(r=>{const a=avistaSeries(r,p).slice(-1)[0];r._luc=a.ll;r._roi=calc(r,p).investAvista?a.ll/calc(r,p).investAvista:0;r._far=farol(r,p);r._lance=lanceMax(r,p).lance;});
