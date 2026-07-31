@@ -130,12 +130,13 @@
   <aside class="side" id="sideEl">
     <div class="sec" id="secDados"><h3 onclick="toggleSec('secDados')"><span class="ar">▾</span>1 · Dados</h3><div class="secbody">
     <label>Lista da Caixa (CSV)</label>
-    <input type="file" id="file" accept=".csv">
+    <input type="file" id="file" accept=".csv" multiple>
     <div class="muted" style="margin-top:4px;font-size:11px">⬇ <a href="https://venda-imoveis.caixa.gov.br/sistema/download-lista.asp" target="_blank" rel="noopener">baixar a lista atualizada na Caixa</a></div>
     <div class="muted" id="dataInfo" style="margin-top:6px"></div>
     </div></div>
     <div class="sec" id="secFiltros"><h3 onclick="toggleSec('secFiltros')"><span class="ar">▾</span>2 · Filtros</h3><div class="secbody">
     <label>Buscar</label><input id="busca" placeholder="endereço, bairro ou matrícula" oninput="applyFilters()">
+    <label>Estado (UF)</label><select id="fUF" onchange="repopulaFiltros();applyFilters()"><option value="">— carregue o CSV —</option></select>
     <label>Cidade</label><select id="fCidade" onchange="fillBairros()"><option value="">— carregue o CSV —</option></select>
     <label>Bairro</label><select id="fBairro"><option value="">— todos os bairros —</option></select>
     <label>Valor máximo (R$)</label><input type="number" id="fValor" placeholder="vazio = sem limite">
@@ -912,12 +913,70 @@ function chart(cats,series,{type='bar',h=230,fmtY=fmt,title=''}={}){
 }
 
 // ---------- carregar CSV ----------
-file.addEventListener('change',e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>{const {rows,dataGer}=parseCSV(rd.result);RAW=rows;window._dg=dataGer;reconcileFavorites(dataGer);dataInfo.innerHTML=`<b>${rows.length}</b> imóveis · geração ${dataGer||'?'}`;hdrsub.textContent=`Lista carregada (${dataGer||'?'}) — ${rows.length} imóveis`;const cids=[...new Set(rows.map(r=>r.cidadeN))].sort();fCidade.innerHTML='<option value="">Todas as cidades</option>'+cids.map(c=>`<option>${c}</option>`).join('');const tps=[...new Set(rows.map(r=>r.tipo))].sort();fTipos.innerHTML=tps.map(t=>`<label class="chk"><input type="checkbox" class="tp" value="${t}" checked>${t}</label>`).join('');const mds=[...new Set(rows.map(r=>r.modal).filter(Boolean))].sort();fModal.innerHTML=mds.map(m=>`<label class="chk"><input type="checkbox" class="md" value="${esc(m)}" checked>${esc(m)}</label>`).join('');fillBairros();applyFilters();};rd.readAsText(f,'ISO-8859-1');});
+let UFS={};                                   // UF -> {n, dataGer}
+function repopulaFiltros(){
+  const ufs=[...new Set(RAW.map(r=>r.uf).filter(Boolean))].sort();
+  const curUF=fUF?fUF.value:'';
+  if(fUF)fUF.innerHTML='<option value="">Todos os estados</option>'+ufs.map(u=>`<option ${u===curUF?'selected':''}>${u}</option>`).join('');
+  const base=curUF?RAW.filter(r=>r.uf===curUF):RAW;
+  const curCid=fCidade.value;
+  const cids=[...new Set(base.map(r=>r.cidadeN))].sort();
+  fCidade.innerHTML='<option value="">Todas as cidades</option>'+cids.map(c=>`<option ${c===curCid?'selected':''}>${c}</option>`).join('');
+  const marc=sel=>[...document.querySelectorAll(sel)].filter(x=>x.checked).map(x=>x.value);
+  const tAnt=marc('.tp'),mAnt=marc('.md');
+  const tps=[...new Set(RAW.map(r=>r.tipo))].sort();
+  fTipos.innerHTML=tps.map(t=>`<label class="chk"><input type="checkbox" class="tp" value="${esc(t)}" ${(!tAnt.length||tAnt.includes(t))?'checked':''}>${esc(t)}</label>`).join('');
+  const mds=[...new Set(RAW.map(r=>r.modal).filter(Boolean))].sort();
+  fModal.innerHTML=mds.map(m=>`<label class="chk"><input type="checkbox" class="md" value="${esc(m)}" ${(!mAnt.length||mAnt.includes(m))?'checked':''}>${esc(m)}</label>`).join('');
+  fillBairros();
+}
+function infoEstados(){
+  const ufs=Object.keys(UFS).sort();
+  dataInfo.innerHTML=`<b>${RAW.length}</b> imóveis`+(ufs.length?(' · '+ufs.length+' estado'+(ufs.length>1?'s':'')):'')
+    +(ufs.length?('<div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">'+ufs.map(u=>
+      `<span class="pill" style="background:var(--chip);color:var(--txt)">${u} <span class="muted">${UFS[u].n} · ${esc(UFS[u].dataGer||'?')}</span> <a href="#" onclick="removeUF('${u}');return false" title="remover ${u}" style="color:#ff8b7d">✕</a></span>`).join('')+'</div>'):'');
+  hdrsub.textContent=RAW.length?`${RAW.length} imóveis carregados (${ufs.join(', ')})`:'Carregue a lista da Caixa (Lista_imoveis_<UF>.csv) para começar';
+}
+function removeUF(uf){
+  RAW=RAW.filter(r=>r.uf!==uf);delete UFS[uf];
+  infoEstados();repopulaFiltros();
+  if(RAW.length)reconcileFavorites(window._dg||'');
+  applyFilters();render();
+}
+function carregaCSVs(files){
+  const lista=[...files];if(!lista.length)return;
+  let i=0;
+  const proximo=()=>{
+    if(i>=lista.length){
+      infoEstados();repopulaFiltros();reconcileFavorites(window._dg||'');applyFilters();
+      const b=document.getElementById('file');if(b)b.value='';
+      return;}
+    const f=lista[i++];
+    const ler=(enc,depois)=>{const rd=new FileReader();rd.onload=()=>depois(rd.result);rd.readAsText(f,enc);};
+    ler('ISO-8859-1',txt=>{
+      let res=parseCSV(txt);
+      if(!res.rows.length){                      // arquivo pode estar em UTF-8 — tenta de novo
+        ler('UTF-8',t2=>{const r2=parseCSV(t2);aplica(r2);});
+        return;}
+      aplica(res);
+    });
+    function aplica({rows,dataGer}){
+      if(!rows.length){alert('Não consegui ler imóveis em "'+f.name+'". Confira se é o CSV da Caixa (Lista_imoveis_<UF>.csv).');proximo();return;}
+      const uf=(rows[0].uf||'??').toUpperCase();
+      RAW=RAW.filter(r=>r.uf!==uf).concat(rows);        // substitui o mesmo estado, mantém os outros
+      UFS[uf]={n:rows.length,dataGer};
+      window._dg=dataGer;
+      proximo();
+    }
+  };
+  proximo();
+}
+file.addEventListener('change',e=>carregaCSVs(e.target.files));
 
 function fillBairros(){
   if(!RAW.length)return;
-  const cid=fCidade.value,map={};
-  RAW.forEach(r=>{if(cid&&r.cidadeN!==cid)return;const n=normCity(r.bairro);if(!n)return;if(!map[n])map[n]=r.bairro;});
+  const cid=fCidade.value,uf=(document.getElementById('fUF')||{}).value||'',map={};
+  RAW.forEach(r=>{if(uf&&r.uf!==uf)return;if(cid&&r.cidadeN!==cid)return;const n=normCity(r.bairro);if(!n)return;if(!map[n])map[n]=r.bairro;});
   const keys=Object.keys(map).sort((a,b)=>map[a].localeCompare(map[b],'pt'));
   const cur=fBairro.value;
   fBairro.innerHTML='<option value="">— todos os bairros —</option>'+keys.map(n=>`<option value="${n}">${map[n]}</option>`).join('');
@@ -925,8 +984,8 @@ function fillBairros(){
 }
 function setAllTipos(v){document.querySelectorAll('.tp').forEach(c=>c.checked=v);applyFilters();}
 function setAllModal(v){document.querySelectorAll('.md').forEach(c=>c.checked=v);applyFilters();}
-function applyFilters(){if(!RAW.length)return;const cid=fCidade.value,bai=fBairro.value,vmax=+fValor.value||Infinity;
-  const q=normCity((document.getElementById('busca')||{}).value||'');const tps=[...document.querySelectorAll('.tp:checked')].map(x=>x.value);const mdEls=document.querySelectorAll('.md');const mds=[...document.querySelectorAll('.md:checked')].map(x=>x.value);FILTERED=RAW.filter(r=>(!cid||r.cidadeN===cid)&&(!bai||normCity(r.bairro)===bai)&&r.preco<=vmax&&tps.includes(r.tipo)&&(!mdEls.length||mds.includes(r.modal))
+function applyFilters(){if(!RAW.length)return;const uf=(document.getElementById('fUF')||{}).value||'';const cid=fCidade.value,bai=fBairro.value,vmax=+fValor.value||Infinity;
+  const q=normCity((document.getElementById('busca')||{}).value||'');const tps=[...document.querySelectorAll('.tp:checked')].map(x=>x.value);const mdEls=document.querySelectorAll('.md');const mds=[...document.querySelectorAll('.md:checked')].map(x=>x.value);FILTERED=RAW.filter(r=>(!uf||r.uf===uf)&&(!cid||r.cidadeN===cid)&&(!bai||normCity(r.bairro)===bai)&&r.preco<=vmax&&tps.includes(r.tipo)&&(!mdEls.length||mds.includes(r.modal))
     &&(!q||normCity((r.endereco||'')+' '+(r.bairro||'')+' '+(r.cidade||'')+' '+(r.id||'')+' '+(r.tipo||'')).includes(q)));render();}
 let _recTimer=null;
 function autoRecalc(){
@@ -962,7 +1021,8 @@ function render(){const _mainEl=document.querySelector('.main'),_sc=_mainEl?_mai
   let h=`<div class="muted" style="margin-bottom:6px;font-size:11.5px">colunas: <button class="ghost" style="padding:2px 9px;font-size:11px;${COLMODE==='triagem'?'background:var(--accent);color:#fff':''}" onclick="setColMode('triagem')">triagem</button> <button class="ghost" style="padding:2px 9px;font-size:11px;${COLMODE==='analise'?'background:var(--accent);color:#fff':''}" onclick="setColMode('analise')">análise (todas)</button></div>`;
   const NUM=['preco','aval','desc','_luc','_roi','_lance','_score'];
   h+='<table class="mono"><thead><tr>'+cols.map(c=>`<th class="${NUM.includes(c[0])?'rt':''}" onclick="sortBy('${c[0]}')">${c[1]}${SORT.k===c[0]?(SORT.dir<0?' ▾':' ▴'):''}</th>`).join('')+'</tr></thead><tbody>';
-  FILTERED.forEach((r,i)=>{const fc=r._far.verd,acima=r.preco>r._lance;
+  const LIM=window._verTudo?FILTERED.length:300;
+  FILTERED.slice(0,LIM).forEach((r,i)=>{const fc=r._far.verd,acima=r.preco>r._lance;
     let td='';
     const sc=r._score||0,scor=sc>=60?'#5be59a':sc>=40?'#f4d35e':sc>=20?'#e8a87c':'#8b93a7';
     const dica=Object.entries((r._sct||{partes:{}}).partes).filter(([,v])=>v).map(([k,v])=>k+' +'+v).join(' · ');
@@ -977,7 +1037,10 @@ function render(){const _mainEl=document.querySelector('.main'),_sc=_mainEl?_mai
     if(mostra('fin'))td+=`<td>${r.fin==='Sim'?'<span class="pill g">Sim</span>':'Não'}</td>`;
     td+=`<td><span class="pill ${fc==='VERDE'?'g':fc==='AMARELO'?'y':'r'}">${fc}</span></td><td onclick="event.stopPropagation();toggleFin('${r.id}')">${FIN[r.id]?'⭐':'☆'}</td>`;
     h+=`<tr class="${LASTVIEW===r.id?'viewed':''}" onclick="openDetail('${r.id}')">${td}</tr>`;});
-  h+='</tbody></table>';tableWrap.innerHTML=h;renderFinbar();_restore();}
+  h+='</tbody></table>';
+  if(FILTERED.length>LIM)h+=`<div class="muted" style="text-align:center;padding:12px">Mostrando as <b>${LIM}</b> melhores de <b>${FILTERED.length}</b> (o cálculo considera todas). <button class="ghost" style="padding:4px 12px;font-size:12px" onclick="window._verTudo=true;render()">mostrar todas</button></div>`;
+  else if(window._verTudo&&FILTERED.length>300)h+=`<div class="muted" style="text-align:center;padding:12px"><button class="ghost" style="padding:4px 12px;font-size:12px" onclick="window._verTudo=false;render()">voltar a mostrar só as 300 melhores</button></div>`;
+  tableWrap.innerHTML=h;renderFinbar();_restore();}
 function sortBy(k){if(k==='sel'||k==='#')return;SORT.dir=SORT.k===k?-SORT.dir:-1;SORT.k=k;render();}
 function toggleFin(id){FIN[id]=!FIN[id];if(FIN[id]){const row=RAW.find(r=>r.id===id);if(row){const snap=snapFromRow(row,window._dg||'');snap.prevPreco=null;snap.firstDg=window._dg||'';snap.prazo=(FAVMETA[id]&&FAVMETA[id].prazo)||'';FAVMETA[id]=snap;}}else{delete FAVMETA[id];}saveLS('fav_meta',FAVMETA);saveLS('fin_sel',FIN);render();}
 function clearFin(){if(!confirm('Remover TODOS os favoritos? (o checklist e as premissas por imóvel são mantidos)'))return;Object.keys(FIN).forEach(k=>delete FIN[k]);Object.keys(FAVMETA).forEach(k=>delete FAVMETA[k]);saveLS('fav_meta',FAVMETA);saveLS('fin_sel',FIN);render();}
