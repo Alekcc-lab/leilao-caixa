@@ -1320,7 +1320,7 @@ function promptIA(){
   if(!rows.length){alert('Marque ao menos um imóvel na coluna "IA" da aba ★ Favoritos (os já analisados vêm desmarcados). Carregue o CSV que os contenha.');return;}
   const ck=checklist(rows[0],EPof(rows[0]));
   const keysDoc=ck.filter(c=>/^(edital|matricula|certidoes|ocupacao|debito)/.test(c.chave));
-  let t='Você é um analista de leilão de imóveis. Para cada imóvel abaixo, leia a MATRÍCULA e o EDITAL (abra os links; se não conseguir abrir algum, me avise para eu anexar o PDF) e devolva SOMENTE um JSON no formato do final, sem nenhum texto fora do JSON.\n\n';
+  let t='Você é um analista de leilão de imóveis. Para cada imóvel abaixo, leia a MATRÍCULA e o EDITAL (abra os links; se não conseguir abrir algum, me avise para eu anexar o PDF) e devolva SOMENTE um JSON no formato do final.\n\nFORMATO DA RESPOSTA (importante — o JSON será lido por um programa):\n- Responda APENAS com o JSON. Sem texto antes ou depois, sem explicação, sem cercas de markdown (```).\n- Use exatamente os nomes de campos e as CHAVES do checklist indicadas abaixo.\n- Números sem R$, sem pontos de milhar e com ponto decimal (ex.: 8226.10). Percentuais em fração (0.05 = 5%).\n- JSON válido: aspas duplas, sem vírgula sobrando, sem comentários.\n\n';
   t+='REGRAS:\n- "status" permitido: "OK", "Pendente", "Problema", "N/A".\n- Em "evidencia": cite onde viu, curto (ex.: "Av.7/2022 da matrícula", "cláusula 4 do edital"). NÃO transcreva CPF, nomes completos ou dados pessoais.\n- Preencha só o que os DOCUMENTOS permitirem concluir; omita o resto.\n- Use "Problema" quando houver ônus/penhora/restrição não resolvida; "OK" quando conferido e limpo.\n- Em "origem": identifique a base legal/motivo do leilão a partir do edital/matrícula (consolidação fiduciária = extrajudicial; penhora/execução = judicial; etc.). Se judicial/penhora, preencha também os itens juridico_*.\n- Em "debitos": SEMPRE que encontrar valores de IPTU/condomínio/água/luz em atraso, informe o VALOR NUMÉRICO (sem R$ nem pontos: 8226.10). "coberto" = "Sim" se o edital/anúncio diz que a Caixa paga, "Não" se é do comprador, "A confirmar" se depende do anúncio.\n- BUSQUE OS DÉBITOS NA FONTE OFICIAL: pegue a inscrição imobiliária / cadastro municipal na matrícula ou no edital e consulte o site da PREFEITURA do município (consulta de IPTU, débitos, dívida ativa, protesto, certidão negativa). Informe: IPTU do exercício corrente, dívida ativa de anos anteriores (dizendo quais estão ajuizados/protestados), taxas (lixo, iluminação) e o total. Cite a inscrição usada em "evidencia". Se o portal exigir CAPTCHA/login ou não abrir, deixe o item como Pendente e diga onde consultar (site + nº da inscrição) para eu fazer manualmente.\n- Em "bairro": avalie a REGIÃO e a LIQUIDEZ com base em anúncios reais de imóveis semelhantes — quanto tempo levam para vender, quantos concorrentes existem hoje, se o preço está subindo/estável/caindo, e o perfil do bairro (infraestrutura, transporte, comércio, escolas, segurança, comprador típico).\n- Em "comparaveis": imóveis semelhantes que você encontrou, com preço e área numéricos (servem para calcular o valor de mercado por m²).\n- Em "reforma": estimativas de custo total nos 3 cenários, se der para inferir do estado do imóvel.\n- Em "financeiro": os NÚMEROS da sua análise (frações para %, ex.: 0.05 = 5%). "lance" = valor que se pretende pagar (mínimo/2º leilão); "valor_revenda_mercado" = quanto vale de verdade hoje (não a avaliação da Caixa); "comissao_pct" = 0 quando não há leiloeiro.\n- Em "nome": um rótulo curto do imóvel (ex.: "Villa Vic — Indaiatuba (licitação)").\n- Em "achados_extras": coisas relevantes que não cabem nos itens (ex.: usufruto, cláusula de reversão, indisponibilidade, ITBI/condomínio destoante).\n\n';
   t+='CHAVES do checklist (use exatamente em "chave"):\n';
   keysDoc.forEach(c=>{t+='- '+c.chave+': '+c.cat+' — '+c.item+'\n';});
@@ -1341,85 +1341,160 @@ function matchDebtType(s){s=(''+s).toLowerCase();
   if(/g[áa]s/.test(s))return 'Gás';
   if(/custa|[ôo]nus|baixa|cart[óo]rio/.test(s))return 'Custas p/ baixa de ônus';
   return 'Outros';}
-function extractJSON(t){t=(t||'').trim();const a=t.indexOf('{'),b=t.lastIndexOf('}');return (a>=0&&b>a)?t.slice(a,b+1):t;}
+// ---- camada de compatibilidade: aceita JSON de qualquer IA ----
+function extractJSON(t){
+  t=(''+(t||'')).trim();
+  t=t.replace(/^```[a-z]*\s*/i,'').replace(/```\s*$/,'');          // cercas de markdown
+  const a=t.indexOf('{'),c=t.indexOf('['),b=t.lastIndexOf('}'),d=t.lastIndexOf(']');
+  let ini=-1,fim=-1;
+  if(a>=0&&(c<0||a<c)){ini=a;fim=b;} else if(c>=0){ini=c;fim=d;}
+  let j=(ini>=0&&fim>ini)?t.slice(ini,fim+1):t;
+  j=j.replace(/,\s*([}\]])/g,'$1');                                 // vírgula sobrando
+  return j;
+}
+function pick(o,...ks){for(const k of ks){if(o&&o[k]!=null&&o[k]!=='')return o[k];}return undefined;}
+function toNum(v){
+  if(v==null||v==='')return null;
+  if(typeof v==='number')return isFinite(v)?v:null;
+  let t=(''+v).replace(/[^\d,.\-]/g,'');if(!t)return null;
+  if(t.indexOf(',')>=0){                                   // vírgula = decimal (pt-BR): 21.445,25
+    t=t.replace(/\./g,'').replace(',','.');
+  }else if(/^-?\d{1,3}(\.\d{3})+$/.test(t)){                // 18.000 / 1.234.567 = milhar, não decimal
+    t=t.replace(/\./g,'');
+  }                                                        // senão o ponto é decimal mesmo: 8226.10
+  const n=parseFloat(t);return isNaN(n)?null:n;
+}
+function toPct(v){const n=toNum(v);if(n==null)return null;return n>1?n/100:n;}    // aceita 5 ou 0.05
+function normStatus(v){
+  const t=normCity(v||'');if(!t)return null;
+  if(/^(N\/?A|NAO SE APLICA|NAO APLICAVEL|NOT APPLICABLE)/.test(t))return 'N/A';
+  if(/PROBLEM|ISSUE|CRITIC|ALERTA|RISCO|FALHA|FAIL|IRREGULAR/.test(t))return 'Problema';
+  if(/PEND|TODO|A CONFIRMAR|A VERIFICAR|OPEN|AGUARD|EM ANDAMENTO/.test(t))return 'Pendente';
+  if(/^(OK|CONFERIDO|CONCLUIDO|DONE|COMPLETE|VERIFICADO|SIM|LIMPO|REGULAR|APROVADO)/.test(t))return 'OK';
+  return null;
+}
+function achaItemCk(ck,f){
+  const k=(''+(pick(f,'chave','key','id','codigo','campo')||'')).trim();
+  if(k){const b=ck.find(c=>c.chave===k);if(b)return b;}
+  const txt=normCity(pick(f,'item','verificacao','verificação','titulo','título','name','nome','descricao','descrição')||'');
+  if(!txt)return null;
+  const pal=txt.split(/\s+/).filter(w=>w.length>3);
+  let best=null,bs=0;
+  ck.forEach(c=>{const alvo=new Set(normCity(c.item+' '+c.cat).split(/\s+/).filter(w=>w.length>3));
+    let sc=0;pal.forEach(w=>{if(alvo.has(w))sc++;});
+    if(sc>bs){bs=sc;best=c;}});
+  return bs>=2?best:null;
+}
+function listaImoveis(data){
+  if(Array.isArray(data))return data;
+  const c=pick(data,'imoveis','imóveis','properties','items','itens','results','resultados','dados','analises','análises','lista');
+  if(Array.isArray(c))return c;
+  if(c&&typeof c==='object')return [c];
+  return (data&&(data.id||data.codigo||data.checklist))?[data]:[];
+}
 function importIA(){
   const raw=document.getElementById('iaText').value;
   let data; try{data=JSON.parse(extractJSON(raw));}catch(e){alert('Não consegui ler o JSON. Cole o bloco JSON completo que o Claude gerou.');return;}
-  const arr=data.imoveis||data['imóveis']||(Array.isArray(data)?data:[data]);
-  if(!Array.isArray(arr)||!arr.length){alert('JSON sem lista de imóveis.');return;}
+  const arr=listaImoveis(data);
+  if(!arr.length){alert('Não encontrei imóveis no JSON. Esperado algo como { "imoveis": [ { "id": "...", ... } ] }.');return;}
   const VALID=['OK','Pendente','Problema','N/A'];
   let okN=0,notFound=[],itens=0,extras=0,extrasUp=0,debN=0,compN=0,refN=0,finN=0,baiN=0;
-  arr.forEach(im=>{const id=(''+(im.id||'')).trim();if(!id)return;
+  arr.forEach(im=>{const id=(''+(pick(im,'id','codigo','código','imovel_id','matricula_id','prop_id')||'')).trim();if(!id)return;
     const r=RAW.find(x=>x.id===id)||(FAVMETA[id]&&FAVMETA[id].preco!=null?rowFromMeta(FAVMETA[id]):null);
     if(!r){notFound.push(id);return;}
-    if(im.origem){ORIGEM[id]=Object.assign({},ORIGEM[id],{tipo:matchOrigem(im.origem)});}
+    const _origem=pick(im,'origem','tipo_leilao','tipo_de_leilao','origin');if(_origem){ORIGEM[id]=Object.assign({},ORIGEM[id],{tipo:matchOrigem(_origem)});}
     const ck=checklist(r,EPof(r)),byKey={};ck.forEach(c=>byKey[c.chave]=c.i);
-    (im.checklist||[]).forEach(f=>{const i=byKey[(f.chave||'').trim()];if(i==null)return;
+    const _ck=pick(im,'checklist','diligencia','diligência','itens','items','verificacoes','verificações')||[];
+    (Array.isArray(_ck)?_ck:[]).forEach(f=>{
+      const alvo=achaItemCk(ck,f);if(!alvo)return;const i=alvo.i;
       CKST[id]=CKST[id]||{};CKST[id][i]=Object.assign({},CKST[id][i]);
-      if(VALID.includes(f.status))CKST[id][i].status=f.status;
-      if(f.evidencia!=null||f.evid!=null)CKST[id][i].evid=(f.evidencia||f.evid||'');
-      if(f.obs!=null)CKST[id][i].obs=f.obs;
+      const st=normStatus(pick(f,'status','situacao','situação','state','resultado'));
+      if(st)CKST[id][i].status=st;
+      const ev=pick(f,'evidencia','evidência','evid','evidence','fonte','source','referencia','referência');
+      if(ev!=null)CKST[id][i].evid=''+ev;
+      const ob=pick(f,'obs','observacao','observação','nota','note','comentario','comentário','detalhe','details');
+      if(ob!=null)CKST[id][i].obs=''+ob;
       CKST[id][i].ai=true;itens++;});
     // débitos → aba Débitos (entram no investimento e reduzem o Lance Máximo)
-    if(Array.isArray(im.debitos)&&im.debitos.length){
+    const _deb=pick(im,'debitos','débitos','dividas','dívidas','debts','onus','ônus');
+    if(Array.isArray(_deb)&&_deb.length){
       const rows=debtRows(id).map(x=>({...x}));
-      im.debitos.forEach(d=>{const t=matchDebtType(d.tipo);const i=rows.findIndex(x=>x.tipo===t);if(i<0)return;
-        const v=parseFloat((''+(d.valor!=null?d.valor:0)).replace(/[^\d.,-]/g,'').replace(/\.(?=\d{3}\b)/g,'').replace(',','.'));
-        if(!isNaN(v))rows[i].valor=v;
-        if(d.coberto)rows[i].coberto=(/^s/i.test(d.coberto)?'Sim':/^n/i.test(d.coberto)?'Não':'A confirmar');
-        if(d.status&&VALID.includes(d.status))rows[i].status=d.status;
-        if(d.obs)rows[i].obs=d.obs;
+      _deb.forEach(d=>{const t=matchDebtType(pick(d,'tipo','type','nome','descricao','descrição'));const i=rows.findIndex(x=>x.tipo===t);if(i<0)return;
+        const v=toNum(pick(d,'valor','value','total','montante','amount'));
+        if(v!=null)rows[i].valor=v;
+        const cb=pick(d,'coberto','coberto_por_terceiro','covered','responsavel','responsável');
+        if(cb)rows[i].coberto=(/^s|^sim|^yes|caixa/i.test(''+cb)?'Sim':/^n|^não|^nao|^no|comprador|arrematante/i.test(''+cb)?'Não':'A confirmar');
+        const st=normStatus(pick(d,'status','situacao','situação'));if(st)rows[i].status=st;
+        const ob=pick(d,'obs','observacao','observação','nota','detalhe');if(ob)rows[i].obs=''+ob;
         rows[i].ai=true;debN++;});
       DEBT[id]=rows;
     }
     // comparáveis → aba Comparáveis (definem o valor de mercado)
-    if(Array.isArray(im.comparaveis)&&im.comparaveis.length){
-      const cs=im.comparaveis.map(c=>({preco:+c.preco||0,area:+c.area||0,usar:c.usar!==false,fonte:c.fonte||''})).filter(c=>c.preco>0&&c.area>0);
+    const _cmp=pick(im,'comparaveis','comparáveis','comparables','comps','mercado','similares');
+    if(Array.isArray(_cmp)&&_cmp.length){
+      const cs=_cmp.map(c=>({preco:toNum(pick(c,'preco','preço','valor','price','value'))||0,area:toNum(pick(c,'area','área','m2','metragem','size'))||0,usar:pick(c,'usar','use','usado')!==false,fonte:''+(pick(c,'fonte','source','link','url','origem')||'')})).filter(c=>c.preco>0&&c.area>0);
       if(cs.length){COMP[id]=cs;compN+=cs.length;}
     }
     // reforma → aba Reforma (3 cenários)
-    if(im.reforma&&typeof im.reforma==='object'){
+    const _ref=pick(im,'reforma','renovacao','renovação','reform','obra');
+    if(_ref&&typeof _ref==='object'){
       const rf=Object.assign({sel:'Médio'},REF[id]||{});
-      ['leve','medio','pesado'].forEach(k=>{const v=+im.reforma[k];if(!isNaN(v)&&v>0)rf[k]=v;});
-      const cn=im.reforma.cenario||im.reforma.sel;if(cn&&/leve|m[ée]dio|pesado/i.test(cn))rf.sel=/leve/i.test(cn)?'Leve':/pesado/i.test(cn)?'Pesado':'Médio';
-      if(im.reforma.obs)rf.obs=im.reforma.obs;
+      [['leve',['leve','light','baixo','minima','mínima']],['medio',['medio','médio','medium','moderado']],['pesado',['pesado','heavy','alto','completa','total']]].forEach(([k,al])=>{
+        const v=toNum(pick(_ref,...al));if(v!=null&&v>0)rf[k]=v;});
+      const cn=pick(_ref,'cenario','cenário','sel','scenario','selecionado');if(cn&&/leve|m[ée]dio|pesado/i.test(cn))rf.sel=/leve/i.test(cn)?'Leve':/pesado/i.test(cn)?'Pesado':'Médio';
+      const _ro=pick(_ref,'obs','observacao','observação','nota');if(_ro)rf.obs=''+_ro;
       REF[id]=rf;refN++;
     }
-    if(im.financeiro&&typeof im.financeiro==='object'){
-      const f=im.financeiro, ov=Object.assign({},POV[id]), num=v=>{const n=parseFloat(v);return isNaN(n)?null:n;};
-      if(num(f.lance)!=null)ov.preco=num(f.lance);
-      if(num(f.valor_revenda_mercado)!=null)ov.vendaAbs=num(f.valor_revenda_mercado);
-      if(num(f.comissao_pct)!=null)ov.leiloeiro=num(f.comissao_pct);
-      if(num(f.itbi_pct)!=null)ov.itbi=num(f.itbi_pct);
-      if(num(f.desocupacao)!=null)ov.desoc=num(f.desocupacao);
-      if(num(f.registro)!=null)ov.registro=num(f.registro);
+    const f=pick(im,'financeiro','financials','numeros','números','financeira');
+    if(f&&typeof f==='object'){
+      const ov=Object.assign({},POV[id]);
+      const vLance=toNum(pick(f,'lance','lance_pretendido','preco','preço','arrematacao','arrematação','bid','valor_lance'));
+      if(vLance!=null)ov.preco=vLance;
+      const vVenda=toNum(pick(f,'valor_revenda_mercado','valor_revenda','valor_mercado','revenda','venda','market_value','resale'));
+      if(vVenda!=null)ov.vendaAbs=vVenda;
+      const vCom=toPct(pick(f,'comissao_pct','comissao','comissão','comissao_leiloeiro','commission'));
+      if(vCom!=null)ov.leiloeiro=vCom;
+      const vItbi=toPct(pick(f,'itbi_pct','itbi'));
+      if(vItbi!=null)ov.itbi=vItbi;
+      const vDes=toNum(pick(f,'desocupacao','desocupação','desocupacao_custo','eviction'));
+      if(vDes!=null)ov.desoc=vDes;
+      const vReg=toNum(pick(f,'registro','registro_escritura','cartorio','cartório','registration'));
+      if(vReg!=null)ov.registro=vReg;
       POV[id]=ov;finN++;
     }
-    if(im.bairro&&typeof im.bairro==='object'){
-      const bb=im.bairro,k=bairroKey(r),cur=Object.assign({},BAIRRO[k]);
-      if(bb.liquidez&&LIQ.includes(bb.liquidez)){cur.liquidez=bb.liquidez;FAR[id]=Object.assign(farolDefaults(r,EPof(r)),FAR[id]||{},{lq:bb.liquidez});}
-      const nm=v=>{const n=parseFloat(v);return isNaN(n)?null:n;};
-      if(nm(bb.tempo_venda_meses)!=null)cur.tempoVenda=nm(bb.tempo_venda_meses);
-      if(nm(bb.anuncios_semelhantes)!=null)cur.oferta=nm(bb.anuncios_semelhantes);
-      if(bb.tendencia&&/subindo|est[áa]vel|caindo/i.test(bb.tendencia))cur.tendencia=/subindo/i.test(bb.tendencia)?'Subindo':/caindo/i.test(bb.tendencia)?'Caindo':'Estável';
-      if(nm(bb.nota)!=null)cur.nota=nm(bb.nota);
-      if(bb.texto)cur.texto=bb.texto;
+    const bb=pick(im,'bairro','regiao','região','neighborhood','localizacao','localização','liquidez_bairro');
+    if(bb&&typeof bb==='object'){
+      const k=bairroKey(r),cur=Object.assign({},BAIRRO[k]);
+      const lqv=normCity(pick(bb,'liquidez','liquidity')||'');
+      const lq=/ALTA|HIGH/.test(lqv)?'Alta':/BAIXA|LOW/.test(lqv)?'Baixa':/MEDIA|MEDIUM/.test(lqv)?'Média':null;
+      if(lq){cur.liquidez=lq;FAR[id]=Object.assign(farolDefaults(r,EPof(r)),FAR[id]||{},{lq});}
+      const tv=toNum(pick(bb,'tempo_venda_meses','tempo_venda','tempo_medio_venda','meses_venda','months_to_sell'));
+      if(tv!=null)cur.tempoVenda=tv;
+      const of=toNum(pick(bb,'anuncios_semelhantes','anuncios','oferta','listings','concorrentes'));
+      if(of!=null)cur.oferta=of;
+      const td=normCity(pick(bb,'tendencia','tendência','trend')||'');
+      if(td)cur.tendencia=/SUBINDO|ALTA|UP|CRESC/.test(td)?'Subindo':/CAINDO|QUEDA|DOWN|BAIX/.test(td)?'Caindo':'Estável';
+      const nt=toNum(pick(bb,'nota','score','rating','avaliacao','avaliação'));
+      if(nt!=null)cur.nota=nt;
+      const tx=pick(bb,'texto','analise','análise','descricao','descrição','resumo','text');
+      if(tx)cur.texto=''+tx;
       BAIRRO[k]=cur;baiN++;
     }
     const ax=AIX[id]||{};let axTocado=false;
-    if(im.nome){ax.nome=im.nome;axTocado=true;}
-    if(im.financeiro){ax.fin=im.financeiro;axTocado=true;}
+    const _nome=pick(im,'nome','name','titulo','título','label');if(_nome){ax.nome=''+_nome;axTocado=true;}
+    if(f){ax.fin=f;axTocado=true;}
     if(ax.ranking||ax.analise){delete ax.ranking;delete ax.analise;axTocado=true;}   // ranking/contexto da IA: o app faz o próprio
-    if(im.resumo){ax.resumo=im.resumo;axTocado=true;}
-    if(Array.isArray(im.achados_extras)){
+    const _res=pick(im,'resumo','summary','sumario','sumário','conclusao','conclusão');if(_res){ax.resumo=''+_res;axTocado=true;}
+    const _ach=pick(im,'achados_extras','achados','findings','extras','observacoes','observações','pontos_atencao','riscos');
+    if(Array.isArray(_ach)){
       // mescla por título: atualiza o que já existe e só acrescenta o que é novo (evita duplicar em reimportações)
       const norm=t=>normCity(t||'').replace(/[^A-Z0-9 ]/g,'').replace(/\s+/g,' ').trim();
       const atuais=(ax.achados||[]).slice();
       const idx={};atuais.forEach((a,i)=>{idx[norm(a.titulo)]=i;});
       let novos=0,atualizados=0;
-      im.achados_extras.forEach(x=>{
-        const t=x.titulo||'',k=norm(t);
-        const item={titulo:t,detalhe:x.detalhe||'',relevancia:(x.relevancia||'').toLowerCase()};
+      _ach.forEach(x=>{
+        const t=''+(pick(x,'titulo','título','title','nome','name')||(typeof x==='string'?x:'')),k=norm(t);
+        const item={titulo:t,detalhe:''+(pick(x,'detalhe','detalhes','detail','descricao','descrição','texto','obs')||''),relevancia:normCity(pick(x,'relevancia','relevância','relevance','prioridade','severity')||'').toLowerCase()};
         if(k&&idx[k]!=null){const j=idx[k];
           atuais[j]=Object.assign({},atuais[j],{detalhe:item.detalhe||atuais[j].detalhe,relevancia:item.relevancia||atuais[j].relevancia,titulo:t});
           atualizados++;}
