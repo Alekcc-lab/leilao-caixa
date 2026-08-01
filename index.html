@@ -1394,13 +1394,42 @@ function listaImoveis(data){
 }
 function importIA(){
   const raw=document.getElementById('iaText').value;
-  let data; try{data=JSON.parse(extractJSON(raw));}catch(e){alert('Não consegui ler o JSON. Cole o bloco JSON completo que o Claude gerou.');return;}
+  if(!(''+raw).trim()){alert('Cole o JSON da análise no campo acima.');return;}
+  let data,txt=extractJSON(raw),errParse=null;
+  try{data=JSON.parse(txt);}catch(e){errParse=e;
+    // tenta reparar defeitos comuns de outras IAs
+    let t2=txt.replace(/[\u201C\u201D]/g,'"').replace(/[\u2018\u2019]/g,"'")   // aspas curvas
+             .replace(/\/\/[^\n\r]*/g,'').replace(/\/\*[\s\S]*?\*\//g,'')      // comentários
+             .replace(/\bNaN\b|\bundefined\b/g,'null')
+             .replace(/'([^'\\]*)'(\s*:)/g,'"$1"$2')                            // 'chave':
+             .replace(/:\s*'([^'\\]*)'/g,': "$1"')                              // : 'valor'
+             .replace(/([{,]\s*)([A-Za-z_][\w\-]*)(\s*:)/g,'$1"$2"$3')          // chave sem aspas
+             .replace(/,\s*([}\]])/g,'$1');
+    try{data=JSON.parse(t2);errParse=null;}catch(e2){}
+  }
+  if(!data){
+    const pos=(errParse&&(''+errParse.message).match(/position (\d+)/)||[])[1];
+    const trecho=pos?('\n\nPerto de: ...'+txt.slice(Math.max(0,pos-60),+pos+60).replace(/\s+/g,' ')+'...'):'';
+    alert('O texto colado não é um JSON válido.\n\n'+(errParse?errParse.message:'')+trecho+'\n\nDica: peça à IA para responder APENAS com o JSON, sem texto em volta e sem markdown.');
+    return;}
   const arr=listaImoveis(data);
-  if(!arr.length){alert('Não encontrei imóveis no JSON. Esperado algo como { "imoveis": [ { "id": "...", ... } ] }.');return;}
+  if(!arr.length){
+    const chaves=(data&&typeof data==='object')?Object.keys(data).slice(0,12).join(', '):typeof data;
+    alert('JSON lido, mas não achei a lista de imóveis.\n\nChaves encontradas: '+chaves+'\n\nEsperado: { "imoveis": [ { "id": "...", ... } ] } — também aceito properties/items/dados/lista, um objeto único ou um array.');
+    return;}
   const VALID=['OK','Pendente','Problema','N/A'];
   let okN=0,notFound=[],itens=0,extras=0,extrasUp=0,debN=0,compN=0,refN=0,finN=0,baiN=0;
-  arr.forEach(im=>{const id=(''+(pick(im,'id','codigo','código','imovel_id','matricula_id','prop_id')||'')).trim();if(!id)return;
-    const r=RAW.find(x=>x.id===id)||(FAVMETA[id]&&FAVMETA[id].preco!=null?rowFromMeta(FAVMETA[id]):null);
+  const chaveId=v=>(''+(v==null?'':v)).replace(/[^0-9A-Za-z]/g,'').replace(/^0+/,'').toUpperCase();
+  const acha=idBruto=>{const k=chaveId(idBruto);if(!k)return null;
+    let r=RAW.find(x=>chaveId(x.id)===k);if(r)return r;
+    const fid=Object.keys(FAVMETA).find(x=>chaveId(x)===k);
+    if(fid&&FAVMETA[fid]&&FAVMETA[fid].preco!=null)return rowFromMeta(Object.assign({id:fid},FAVMETA[fid]));
+    return null;};
+  let semId=0;
+  arr.forEach(im=>{const idBruto=pick(im,'id','codigo','código','imovel_id','matricula_id','prop_id','numero','número');
+    if(idBruto==null||idBruto===''){semId++;return;}
+    const id=(''+idBruto).trim();
+    const r=acha(id);
     if(!r){notFound.push(id);return;}
     const _origem=pick(im,'origem','tipo_leilao','tipo_de_leilao','origin');if(_origem){ORIGEM[id]=Object.assign({},ORIGEM[id],{tipo:matchOrigem(_origem)});}
     const ck=checklist(r,EPof(r)),byKey={};ck.forEach(c=>byKey[c.chave]=c.i);
@@ -1504,7 +1533,8 @@ function importIA(){
     if(axTocado)AIX[id]=ax;
     okN++;});
   saveLS('ck_state',CKST);saveLS('aix',AIX);saveLS('origem',ORIGEM);saveLS('debt',DEBT);saveLS('comp',COMP);saveLS('ref',REF);saveLS('prem_over',POV);saveLS('bairro',BAIRRO);saveLS('far_state',FAR);render();if(modalbg.style.display==='flex')drawModal();closeIAImport();
-  alert('Importado: '+okN+' imóvel(is)\n• '+itens+' item(ns) do checklist\n• '+debN+' débito(s)\n• '+compN+' comparável(is)\n• '+refN+' orçamento(s) de reforma\n• '+baiN+' análise(s) de bairro/liquidez\n• '+finN+' bloco(s) financeiro\n• '+extras+' achado(s) novo(s)'+(extrasUp?' ('+extrasUp+' atualizado(s))':'')+(notFound.length?('\n\nNão encontrei (favorite/carregue o CSV): '+notFound.join(', ')):''));
+  alert('Importado: '+okN+' imóvel(is)\n• '+itens+' item(ns) do checklist\n• '+debN+' débito(s)\n• '+compN+' comparável(is)\n• '+refN+' orçamento(s) de reforma\n• '+baiN+' análise(s) de bairro/liquidez\n• '+finN+' bloco(s) financeiro\n• '+extras+' achado(s) novo(s)'+(extrasUp?' ('+extrasUp+' atualizado(s))':'')+(notFound.length?('\n\n⚠ Estes ids não estão na lista carregada: '+notFound.join(', ')+'\nCarregue o CSV do estado correspondente (ou favorite o imóvel) e importe de novo.'):'')
+    +(semId?('\n\n⚠ '+semId+' item(ns) do JSON vieram sem "id" — a IA precisa devolver o mesmo id que está no prompt.'):''));
 }
 function ensureAix(id){AIX[id]=AIX[id]||{};AIX[id].achados=AIX[id].achados||[];return AIX[id];}
 function setAix(id,i,f,v){const ax=ensureAix(id);ax.achados[i]=Object.assign({},ax.achados[i]);ax.achados[i][f]=v;saveLS('aix',AIX);}
