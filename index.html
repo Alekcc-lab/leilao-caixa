@@ -803,7 +803,10 @@ function parseCSV(text){
   return {rows:out.filter(r=>r.preco!=null&&r.aval),dataGer:dg};
 }
 
-function P(){return{vendaPct:(+pVendaPct.value||100)/100,juros:+pJuros.value/100,entrada:+pEntrada.value/100,itbi:+pItbi.value/100,corretor:+pCorretor.value/100,imposto:+pImposto.value/100,prazo:+pPrazo.value,registro:+pRegistro.value,reforma:+pReforma.value,cond:+pCond.value,iptu:+pIptu.value,desoc:+pDesoc.value,prazoVenda:+pPrazoVenda.value,tma:(+pTMA.value||12)/100};}
+// campo vazio cai no padrão; ZERO é valor legítimo (não pode virar o padrão via ||)
+function numPrem(el,padrao){const v=el&&el.value!=null?(''+el.value).trim():'';if(v==='')return padrao;
+  const n=parseFloat(v.replace(',','.'));return isFinite(n)?n:padrao;}
+function P(){return{vendaPct:numPrem(pVendaPct,100)/100,juros:+pJuros.value/100,entrada:+pEntrada.value/100,itbi:+pItbi.value/100,corretor:+pCorretor.value/100,imposto:+pImposto.value/100,prazo:+pPrazo.value,registro:+pRegistro.value,reforma:+pReforma.value,cond:+pCond.value,iptu:+pIptu.value,desoc:+pDesoc.value,prazoVenda:+pPrazoVenda.value,tma:numPrem(pTMA,12)/100};}
 function tipoParams(tipo,p){const t=(tipo||'').toLowerCase();const terreno=t.includes('terreno')||t.includes('lote'),casa=t.includes('casa');return{terreno,casa,cond:(terreno||casa)?0:p.cond,reforma:terreno?0:(p.reformaTot!=null?p.reformaTot:p.reforma),desoc:terreno?0:p.desoc,temCond:!(terreno||casa)};}
 function venda(r,p){return p.vendaAbs!=null?p.vendaAbs:(p.mercado!=null?p.mercado:r.aval*(p.vendaPct||1));}
 // ---- lance máximo recomendado (modelo profissional) ----
