@@ -93,6 +93,8 @@
   /* sidebar colapsável e seções recolhíveis */
   .side{transition:width .18s,min-width .18s,padding .18s}
   .side.col{width:0;min-width:0;padding:0;overflow:hidden;border-right:0}
+  tr.vr-go td:first-child{box-shadow:inset 3px 0 0 var(--green);}
+  tr.vr-no td:first-child{box-shadow:inset 3px 0 0 var(--red);}
   #sideTgl{position:absolute;left:0;top:56px;z-index:30;background:var(--panel2);border:1px solid var(--line);border-left:0;border-radius:0 8px 8px 0;color:var(--mut);padding:7px 6px;cursor:pointer;font-size:12px;line-height:1}
   #sideTgl:hover{color:var(--txt)}
   .sec>h3{cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px}
@@ -1047,7 +1049,10 @@ function autoRecalc(){
 function recalc(){render();if(modalbg.style.display==='flex')drawModal();if(typeof cloudSave==='function')cloudSave();}
 function render(){const _mainEl=document.querySelector('.main'),_sc=_mainEl?_mainEl.scrollTop:0;const _restore=()=>{if(_mainEl)_mainEl.scrollTop=_sc;};
   const p=P();FILTERED.forEach(r=>{const a=avistaSeries(r,p).slice(-1)[0];r._luc=a.ll;r._roi=calc(r,p).investAvista?a.ll/calc(r,p).investAvista:0;r._far=farol(r,p);r._lance=lanceMax(r,p).lance;});
-  const _ctx=ctxTriagem(FILTERED);FILTERED.forEach(r=>{const t=scoreTriagem(r,EPof(r),_ctx);r._score=t.score;r._sct=t;});FILTERED.sort((x,y)=>SORT.dir*((x[SORT.k]??-1e18)>(y[SORT.k]??-1e18)?1:-1));
+  const _ctx=ctxTriagem(FILTERED);FILTERED.forEach(r=>{const t=scoreTriagem(r,EPof(r),_ctx);r._score=t.score;r._sct=t;});
+  window._viabTot={todos:FILTERED.length,
+    go:FILTERED.filter(r=>r.preco<=r._lance).length,
+    no:FILTERED.filter(r=>r.preco>r._lance).length};FILTERED.sort((x,y)=>SORT.dir*((x[SORT.k]??-1e18)>(y[SORT.k]??-1e18)?1:-1));
   updateFavTab();updateShareTab();renderSubTabs();renderTrilha();
   if(VIEW==='shared'){renderShared();_restore();return;}
   if(VIEW==='fav'){
@@ -1055,21 +1060,30 @@ function render(){const _mainEl=document.querySelector('.main'),_sc=_mainEl?_mai
     if(SUB.fav==='mapa'){window._mapAll=false;renderMapa();return;}
     renderFavorites(p);_restore();return;}
   if(VIEW==='all'&&SUB.all==='mapa'){window._mapAll=true;renderMapa();return;}
-  const n=FILTERED.length,avgD=n?FILTERED.reduce((s,r)=>s+r.desc,0)/n:0,best=n?Math.max(...FILTERED.map(r=>r.desc)):0,fin=Object.keys(FIN).filter(k=>FIN[k]).length;
+  const LISTA=window._viab==='go'?FILTERED.filter(r=>r.preco<=r._lance)
+              :window._viab==='no'?FILTERED.filter(r=>r.preco>r._lance):FILTERED;
+  const n=LISTA.length,avgD=n?LISTA.reduce((s,r)=>s+r.desc,0)/n:0,best=n?Math.max(...LISTA.map(r=>r.desc)):0,fin=Object.keys(FIN).filter(k=>FIN[k]).length;
   stats.innerHTML=[['Imóveis',n],['Desconto médio',avgD.toFixed(1)+'%'],['Maior desconto',best.toFixed(1)+'%'],['Favoritos',fin]].map(s=>`<div class="stat">${s[0]}<b>${s[1]}</b></div>`).join('');
+  if(!n&&window._viab&&window._viab!=='todos'&&FILTERED.length){
+    tableWrap.innerHTML='<div class="empty">Nenhum imóvel '+(window._viab==='go'?'aceita lance':'está sem lance possível')+
+      ' no filtro atual.<br><span style="font-size:12px">'+
+      '<a href="#" onclick="setViab(\'todos\');return false;">ver todos os '+FILTERED.length+'</a></span></div>';
+    finbar.style.display='none';_restore();return;}
   if(!n){tableWrap.innerHTML=RAW.length
       ?'<div class="empty">Nenhum imóvel no filtro.<br><span style="font-size:12px">Afrouxe os filtros (cidade, bairro, valor, tipos, modalidade) ou clique em <b>todos</b> nos checkboxes.</span></div>'
       :'<div class="empty">Nenhum dado carregado.<br>Baixe a lista em <a href="https://venda-imoveis.caixa.gov.br/sistema/download-lista.asp" target="_blank">download-lista.asp</a> e carregue aqui.</div>';
     finbar.style.display='none';_restore();return;}
-  const TODAS=[['#',''],['_score','Score'],['uf','UF'],['cidade','Cidade'],['tipo','Tipo'],['bairro','Bairro'],['preco','Preço'],['aval','Avaliação'],['desc','Desc.%'],['_luc','Lucro Líq.'],['_roi','ROI'],['_lance','Lance máx.'],['modal','Modalidade'],['fin','Fin.'],['_far','Farol'],['sel','★']];
+  const TODAS=[['#',''],['_score','Score'],['uf','UF'],['cidade','Cidade'],['tipo','Tipo'],['bairro','Bairro'],['preco','Preço'],['aval','Avaliação'],['desc','Desc.%'],['_luc','Lucro Líq.'],['_roi','ROI'],['_lance','Veredito · lance máx.'],['modal','Modalidade'],['fin','Fin.'],['_far','Farol'],['sel','★']];
   const ESSENC=['#','_score','uf','cidade','tipo','bairro','preco','desc','_roi','_lance','_far','sel'];
   const cols=COLMODE==='triagem'?TODAS.filter(c=>ESSENC.includes(c[0])):TODAS;
   const mostra=k=>cols.some(c=>c[0]===k);
-  let h=`<div class="muted" style="margin-bottom:6px;font-size:11.5px">colunas: <button class="ghost" style="padding:2px 9px;font-size:11px;${COLMODE==='triagem'?'background:var(--accent);color:#fff':''}" onclick="setColMode('triagem')">triagem</button> <button class="ghost" style="padding:2px 9px;font-size:11px;${COLMODE==='analise'?'background:var(--accent);color:#fff':''}" onclick="setColMode('analise')">análise (todas)</button></div>`;
+  const _vt=window._viabTot||{todos:0,go:0,no:0},_vc=(k,t,n)=>`<button class="ghost" style="padding:3px 11px;font-size:11.5px;margin-right:5px;${(window._viab||'todos')===k?'background:'+(k==='go'?'var(--green)':k==='no'?'var(--red)':'var(--chip)')+';color:'+(k==='todos'?'var(--txt)':'#fff'):''}" onclick="setViab('${k}')">${t} <b>${n}</b></button>`;
+  let h=`<div style="margin-bottom:8px">${_vc('todos','todos',_vt.todos)}${_vc('go','aceitam lance',_vt.go)}${_vc('no','sem lance possível',_vt.no)}</div>`;
+  h+=`<div class="muted" style="margin-bottom:6px;font-size:11.5px">colunas: <button class="ghost" style="padding:2px 9px;font-size:11px;${COLMODE==='triagem'?'background:var(--accent);color:#fff':''}" onclick="setColMode('triagem')">triagem</button> <button class="ghost" style="padding:2px 9px;font-size:11px;${COLMODE==='analise'?'background:var(--accent);color:#fff':''}" onclick="setColMode('analise')">análise (todas)</button></div>`;
   const NUM=['preco','aval','desc','_luc','_roi','_lance','_score'];
   h+='<table class="mono"><thead><tr>'+cols.map(c=>`<th class="${NUM.includes(c[0])?'rt':''}" onclick="sortBy('${c[0]}')">${c[1]}${SORT.k===c[0]?(SORT.dir<0?' ▾':' ▴'):''}</th>`).join('')+'</tr></thead><tbody>';
-  const LIM=window._verTudo?FILTERED.length:300;
-  FILTERED.slice(0,LIM).forEach((r,i)=>{const fc=r._far.verd,acima=r.preco>r._lance;
+  const LIM=window._verTudo?LISTA.length:300;
+  LISTA.slice(0,LIM).forEach((r,i)=>{const fc=r._far.verd,acima=r.preco>r._lance;
     let td='';
     const sc=r._score||0,scor=sc>=60?'#5be59a':sc>=40?'#f4d35e':sc>=20?'#e8a87c':'#8b93a7';
     const dica=Object.entries((r._sct||{partes:{}}).partes).filter(([,v])=>v).map(([k,v])=>k+' +'+v).join(' · ');
@@ -1079,15 +1093,33 @@ function render(){const _mainEl=document.querySelector('.main'),_sc=_mainEl?_mai
     if(mostra('aval'))td+=`<td class="rt">${fmt(r.aval)}</td>`;
     td+=`<td class="rt"><span class="pill ${r.desc>=45?'g':r.desc>=40?'y':''}">${r.desc.toFixed(1)}%</span></td>`;
     if(mostra('_luc'))td+=`<td class="rt ${r._luc<0?'neg':''}">${fmt(r._luc)}</td>`;
-    td+=`<td class="rt">${pct(r._roi)}</td><td class="rt ${acima?'neg':''}" title="${acima?'arrematação acima do teto':'dentro do teto'}">${fmt(r._lance)}${acima?' ⛔':''}</td>`;
+    td+=`<td class="rt">${pct(r._roi)}</td>${vereditoCel(r)}`;
     if(mostra('modal'))td+=`<td>${r.modal}</td>`;
     if(mostra('fin'))td+=`<td>${r.fin==='Sim'?'<span class="pill g">Sim</span>':'Não'}</td>`;
     td+=`<td><span class="pill ${fc==='VERDE'?'g':fc==='AMARELO'?'y':'r'}">${fc}</span></td><td onclick="event.stopPropagation();toggleFin('${r.id}')">${FIN[r.id]?'⭐':'☆'}</td>`;
-    h+=`<tr class="${LASTVIEW===r.id?'viewed':''}" onclick="openDetail('${r.id}')">${td}</tr>`;});
+    h+=`<tr class="${LASTVIEW===r.id?'viewed':''} ${acima?'vr-no':'vr-go'}" onclick="openDetail('${r.id}')">${td}</tr>`;});
   h+='</tbody></table>';
-  if(FILTERED.length>LIM)h+=`<div class="muted" style="text-align:center;padding:12px">Mostrando as <b>${LIM}</b> melhores de <b>${FILTERED.length}</b> (o cálculo considera todas). <button class="ghost" style="padding:4px 12px;font-size:12px" onclick="window._verTudo=true;render()">mostrar todas</button></div>`;
-  else if(window._verTudo&&FILTERED.length>300)h+=`<div class="muted" style="text-align:center;padding:12px"><button class="ghost" style="padding:4px 12px;font-size:12px" onclick="window._verTudo=false;render()">voltar a mostrar só as 300 melhores</button></div>`;
+  if(LISTA.length>LIM)h+=`<div class="muted" style="text-align:center;padding:12px">Mostrando as <b>${LIM}</b> melhores de <b>${LISTA.length}</b> (o cálculo considera todas). <button class="ghost" style="padding:4px 12px;font-size:12px" onclick="window._verTudo=true;render()">mostrar todas</button></div>`;
+  else if(window._verTudo&&LISTA.length>300)h+=`<div class="muted" style="text-align:center;padding:12px"><button class="ghost" style="padding:4px 12px;font-size:12px" onclick="window._verTudo=false;render()">voltar a mostrar só as 300 melhores</button></div>`;
   tableWrap.innerHTML=h;renderFinbar();_restore();}
+/* Veredito na lista: o resultado do motor deixa de exigir abrir o imóvel.
+   Barra = lance máximo; o traço branco marca onde está o preço pedido. */
+function vereditoCel(r){
+  const acima=r.preco>r._lance, topo=Math.max(r.preco,r._lance)*1.05||1;
+  const wL=(r._lance/topo*100).toFixed(1), wP=(r.preco/topo*100).toFixed(1);
+  const cor=acima?'var(--red)':'var(--green)';
+  const dif=fmt(Math.abs(r._lance-r.preco));
+  return `<td class="rt" title="${acima?'o lance máximo não alcança o preço pedido':'há folga entre o preço pedido e o seu teto'}">
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">
+      <b style="color:${cor};font-size:11.5px;letter-spacing:.01em">${acima?'sem lance possível':'aceita lance'}</b>
+      <span class="muted" style="font-size:10.5px">${acima?'falta':'folga'} ${dif} · teto ${fmt(r._lance)}</span>
+      <div style="width:104px;height:4px;border-radius:2px;background:#243150;position:relative;overflow:hidden">
+        <div style="position:absolute;left:0;top:0;bottom:0;width:${wL}%;background:${cor};opacity:.6"></div>
+        <div style="position:absolute;left:${wP}%;top:-1px;bottom:-1px;width:2px;background:var(--txt)"></div>
+      </div>
+    </div></td>`;
+}
+function setViab(v){window._viab=v;render();}
 function sortBy(k){if(k==='sel'||k==='#')return;SORT.dir=SORT.k===k?-SORT.dir:-1;SORT.k=k;render();}
 function toggleFin(id){FIN[id]=!FIN[id];if(FIN[id]){const row=RAW.find(r=>r.id===id);if(row){const snap=snapFromRow(row,window._dg||'');snap.prevPreco=null;snap.firstDg=window._dg||'';snap.prazo=(FAVMETA[id]&&FAVMETA[id].prazo)||'';FAVMETA[id]=snap;}}else{delete FAVMETA[id];}saveLS('fav_meta',FAVMETA);saveLS('fin_sel',FIN);render();}
 function clearFin(){if(!confirm('Remover TODOS os favoritos? (o checklist e as premissas por imóvel são mantidos)'))return;Object.keys(FIN).forEach(k=>delete FIN[k]);Object.keys(FAVMETA).forEach(k=>delete FAVMETA[k]);saveLS('fav_meta',FAVMETA);saveLS('fin_sel',FIN);render();}
