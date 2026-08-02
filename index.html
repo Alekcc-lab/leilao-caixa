@@ -56,7 +56,8 @@
   .muted{color:var(--mut);font-size:12px}
   .tabs{display:flex;gap:6px;margin:14px 0 12px;flex-wrap:wrap}
   .tabs button{background:var(--chip);color:var(--mut);font-weight:600}
-  .tabs button.on{background:var(--accent);color:#fff}
+  .tabs button.on{background:var(--panel2);color:var(--txt);box-shadow:inset 0 -2px 0 var(--accent)}
+  .selon{background:var(--chip)!important;color:var(--txt)!important;border-color:var(--mut)!important}
   .close{float:right;background:var(--chip);color:var(--txt);border-radius:8px;padding:5px 10px}
   a{color:#7fa2ff}
   .badge{background:var(--chip);border-radius:6px;padding:2px 7px;font-size:11px;color:var(--mut)}
@@ -1077,9 +1078,9 @@ function render(){const _mainEl=document.querySelector('.main'),_sc=_mainEl?_mai
   const ESSENC=['#','_score','uf','cidade','tipo','bairro','preco','desc','_roi','_lance','_far','sel'];
   const cols=COLMODE==='triagem'?TODAS.filter(c=>ESSENC.includes(c[0])):TODAS;
   const mostra=k=>cols.some(c=>c[0]===k);
-  const _vt=window._viabTot||{todos:0,go:0,no:0},_vc=(k,t,n)=>`<button class="ghost" style="padding:3px 11px;font-size:11.5px;margin-right:5px;${(window._viab||'todos')===k?'background:'+(k==='go'?'var(--green)':k==='no'?'var(--red)':'var(--chip)')+';color:'+(k==='todos'?'var(--txt)':'#fff'):''}" onclick="setViab('${k}')">${t} <b>${n}</b></button>`;
+  const _vt=window._viabTot||{todos:0,go:0,no:0},_vc=(k,t,n)=>`<button class="ghost" style="padding:3px 11px;font-size:11.5px;margin-right:5px;${(window._viab||'todos')===k?'background:var(--chip);color:var(--txt);border-color:var(--mut);'+(k==='go'?'box-shadow:inset 3px 0 0 var(--green)':k==='no'?'box-shadow:inset 3px 0 0 var(--red)':''):(k==='go'?'color:var(--green)':k==='no'?'color:var(--red)':'')}" onclick="setViab('${k}')">${t} <b>${n}</b></button>`;
   let h=`<div style="margin-bottom:8px">${_vc('todos','todos',_vt.todos)}${_vc('go','aceitam lance',_vt.go)}${_vc('no','sem lance possível',_vt.no)}</div>`;
-  h+=`<div class="muted" style="margin-bottom:6px;font-size:11.5px">colunas: <button class="ghost" style="padding:2px 9px;font-size:11px;${COLMODE==='triagem'?'background:var(--accent);color:#fff':''}" onclick="setColMode('triagem')">triagem</button> <button class="ghost" style="padding:2px 9px;font-size:11px;${COLMODE==='analise'?'background:var(--accent);color:#fff':''}" onclick="setColMode('analise')">análise (todas)</button></div>`;
+  h+=`<div class="muted" style="margin-bottom:6px;font-size:11.5px">colunas: <button class="ghost ${COLMODE==='triagem'?'selon':''}" style="padding:2px 9px;font-size:11px" onclick="setColMode('triagem')">triagem</button> <button class="ghost ${COLMODE==='analise'?'selon':''}" style="padding:2px 9px;font-size:11px" onclick="setColMode('analise')">análise (todas)</button></div>`;
   const NUM=['preco','aval','desc','_luc','_roi','_lance','_score'];
   h+='<table class="mono"><thead><tr>'+cols.map(c=>`<th class="${NUM.includes(c[0])?'rt':''}" onclick="sortBy('${c[0]}')">${c[1]}${SORT.k===c[0]?(SORT.dir<0?' ▾':' ▴'):''}</th>`).join('')+'</tr></thead><tbody>';
   const LIM=window._verTudo?LISTA.length:300;
@@ -1336,7 +1337,7 @@ function tabCk(){const r=window._cur,p=EP();const ck=checklist(r,p);
     +`<button class="ghost" style="padding:5px 10px;font-size:12px;white-space:nowrap" onclick="resetCk('${r.id}')">↺ Restaurar checklist</button></div>`;
   const cont={OK:0,Pendente:0,Problema:0,'N/A':0};ck.forEach(c=>{cont[c.status]=(cont[c.status]||0)+1;});
   const bloqN=ck.filter(c=>c.bloqueia&&(c.status==='Pendente'||c.status==='Problema')).length;
-  const fbtn=(v,lbl,n,cor)=>`<button class="ghost" style="padding:3px 9px;font-size:11.5px;${CKF===v?'background:var(--accent);color:#fff':(cor?'color:'+cor:'')}" onclick="setCkF('${v}')">${lbl}${n!=null?' ('+n+')':''}</button>`;
+  const fbtn=(v,lbl,n,cor)=>`<button class="ghost ${CKF===v?'selon':''}" style="padding:3px 9px;font-size:11.5px;${cor&&CKF!==v?'color:'+cor:''}" onclick="setCkF('${v}')">${lbl}${n!=null?' ('+n+')':''}</button>`;
   b+=`<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px;align-items:center">
     <span class="muted" style="font-size:11px">filtrar:</span>
     <button class="ghost" style="padding:3px 9px;font-size:11.5px" onclick="expandCk(true)" title="abrir os campos de todos os itens">abrir tudo</button>
