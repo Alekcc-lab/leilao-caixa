@@ -143,8 +143,13 @@
     <label>Cidade</label><select id="fCidade" onchange="fillBairros()"><option value="">— carregue o CSV —</option></select>
     <label>Bairro</label><select id="fBairro"><option value="">— todos os bairros —</option></select>
     <label>Valor máximo (R$)</label><input type="number" id="fValor" placeholder="vazio = sem limite">
+    <div id="maisTgl" onclick="toggleMais()" style="cursor:pointer;display:flex;align-items:center;gap:7px;margin:10px 0 2px;font-size:12.5px">
+      <span class="muted" style="font-size:11px;width:10px" id="maisAr">▸</span>
+      <b>Tipo e modalidade</b><span class="muted" style="font-size:11px" id="maisResumo"></span></div>
+    <div id="filtrosExtra" style="display:none">
     <label>Tipos <span class="muted" style="font-weight:400;font-size:11px">(<a href="#" onclick="setAllTipos(true);return false">todos</a> · <a href="#" onclick="setAllTipos(false);return false">nenhum</a>)</span></label><div id="fTipos"></div>
     <label>Modalidade <span class="muted" style="font-weight:400;font-size:11px">(<a href="#" onclick="setAllModal(true);return false">todas</a> · <a href="#" onclick="setAllModal(false);return false">nenhuma</a>)</span></label><div id="fModal"></div>
+    </div>
     <button style="width:100%;margin-top:10px" onclick="applyFilters()">Aplicar filtros</button>
     </div></div>
     <div class="sec closed" id="secPrem"><h3 onclick="toggleSec('secPrem')"><span class="ar">▸</span>3 · Premissas globais</h3><div class="secbody">
@@ -440,9 +445,31 @@ function renderFinbar(){
 function updateFavTab(){const c=Object.keys(FIN).filter(k=>FIN[k]).length;const ft=document.querySelector('#viewTabs [data-v="fav"]');if(ft)ft.textContent='★ Carteira ('+c+')';}
 function toggleSide(){const e=document.getElementById('sideEl'),b=document.getElementById('sideTgl');const c=e.classList.toggle('col');b.textContent=c?'▶':'◀';try{localStorage.setItem('side_col',c?'1':'0')}catch(_){}
   if(_map)setTimeout(()=>_map.invalidateSize(),220);}
+/* Tipo e modalidade (19 dos 35 controles) saem da vista e viram uma gaveta.
+   Os checkboxes continuam no DOM — o filtro nao muda de comportamento. */
+function toggleMais(){
+  const e=document.getElementById('filtrosExtra'),a=document.getElementById('maisAr');
+  const abrir=e.style.display==='none';
+  e.style.display=abrir?'block':'none'; a.textContent=abrir?'▾':'▸';
+  try{localStorage.setItem('mais_filtros',abrir?'1':'0')}catch(_){}
+  resumoMais();
+}
+function resumoMais(){
+  const el=document.getElementById('maisResumo');if(!el)return;
+  const tp=document.querySelectorAll('.tp'),tpOn=document.querySelectorAll('.tp:checked');
+  const md=document.querySelectorAll('.md'),mdOn=document.querySelectorAll('.md:checked');
+  const parte=(on,tot,todosLbl,unLbl)=>!tot?'':(on===tot?todosLbl:on+' de '+tot+' '+unLbl);
+  const t=[parte(tpOn.length,tp.length,'todos os tipos','tipos'),
+           parte(mdOn.length,md.length,'todas as modalidades','modalidades')].filter(Boolean).join(' · ');
+  el.textContent=t?'— '+t:'';
+}
 function toggleSec(id){const e=document.getElementById(id);const c=e.classList.toggle('closed');const ar=e.querySelector('.ar');if(ar)ar.textContent=c?'▸':'▾';try{localStorage.setItem('sec_'+id,c?'1':'0')}catch(_){}}
 function restoreUI(){try{
   if(localStorage.getItem('side_col')==='1'){document.getElementById('sideEl').classList.add('col');document.getElementById('sideTgl').textContent='▶';}
+  try{if(localStorage.getItem('mais_filtros')==='1'){
+    document.getElementById('filtrosExtra').style.display='block';
+    document.getElementById('maisAr').textContent='▾';}}catch(_){}
+  resumoMais();
   ['secDados','secFiltros','secPrem'].forEach(id=>{const v=localStorage.getItem('sec_'+id);const e=document.getElementById(id);if(!e||v==null)return;
     e.classList.toggle('closed',v==='1');const ar=e.querySelector('.ar');if(ar)ar.textContent=v==='1'?'▸':'▾';});
 }catch(_){}}
@@ -1034,7 +1061,7 @@ function fillBairros(){
 }
 function setAllTipos(v){document.querySelectorAll('.tp').forEach(c=>c.checked=v);applyFilters();}
 function setAllModal(v){document.querySelectorAll('.md').forEach(c=>c.checked=v);applyFilters();}
-function applyFilters(){if(!RAW.length)return;const uf=(document.getElementById('fUF')||{}).value||'';const cid=fCidade.value,bai=fBairro.value,vmax=+fValor.value||Infinity;
+function applyFilters(){resumoMais();if(!RAW.length)return;const uf=(document.getElementById('fUF')||{}).value||'';const cid=fCidade.value,bai=fBairro.value,vmax=+fValor.value||Infinity;
   const q=normCity((document.getElementById('busca')||{}).value||'');const tps=[...document.querySelectorAll('.tp:checked')].map(x=>x.value);const mdEls=document.querySelectorAll('.md');const mds=[...document.querySelectorAll('.md:checked')].map(x=>x.value);FILTERED=RAW.filter(r=>(!uf||r.uf===uf)&&(!cid||r.cidadeN===cid)&&(!bai||normCity(r.bairro)===bai)&&r.preco<=vmax&&tps.includes(r.tipo)&&(!mdEls.length||mds.includes(r.modal))
     &&(!q||normCity((r.endereco||'')+' '+(r.bairro||'')+' '+(r.cidade||'')+' '+(r.id||'')+' '+(r.tipo||'')).includes(q)));render();}
 let _recTimer=null;
