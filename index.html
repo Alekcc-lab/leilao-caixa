@@ -1156,7 +1156,8 @@ function renderTabs(){
   let h='<div class="tabs" style="margin-bottom:6px">'+SECOES.map(x=>{
     const n=x[0]==='diligencia'?(()=>{const st=ckStats(window._cur,EP());return st.bloq?` <span class="pill r" style="font-size:9px">${st.bloq}</span>`:' <span class="pill g" style="font-size:9px">ok</span>';})():'';
     return `<button class="${CURSEC===x[0]?'on':''}" style="padding:7px 15px;font-size:13.5px" onclick="setSec('${x[0]}')">${x[1]}${n}</button>`;}).join('')+'</div>';
-  if(sec[2].length>1)h+='<div class="tabs" style="margin-top:0">'+sec[2].map(k=>`<button class="${CURTAB===k?'on':''}" style="padding:4px 10px;font-size:12px" onclick="setTab('${k}')">${tabLabel(k)}</button>`).join('')+'</div>';
+  if(CURSEC==='analise')h+='<div class="tabs" style="margin-top:0">'+SEC_ANALISE.map(g=>`<button style="padding:4px 10px;font-size:12px" onclick="irPara('sa-${g.id}')">${g.tit}</button>`).join('')+'</div>';
+  else if(sec[2].length>1)h+='<div class="tabs" style="margin-top:0">'+sec[2].map(k=>`<button class="${CURTAB===k?'on':''}" style="padding:4px 10px;font-size:12px" onclick="setTab('${k}')">${tabLabel(k)}</button>`).join('')+'</div>';
   return h;}
 
 function drawModal(){
@@ -1175,8 +1176,36 @@ function drawModal(){
   <div id="decWrap">${decBanner(r,p)}</div>
   ${premEditor(r,p)}
   ${renderTabs()}`;
-  b+=({resumo:tabResumo,comp:tabComp,debitos:tabDebitos,reforma:tabReforma,cen:tabCenarios,bairro:tabBairro,calc:tabCalc,avista:tabAvista,price:()=>tabFin('PRICE'),sac:()=>tabFin('SAC'),result:tabResult,ck:tabCk,crono:tabCrono})[CURTAB]();
+  b+= CURSEC==='analise' ? analiseEmSecoes()
+      : ({resumo:tabResumo,comp:tabComp,debitos:tabDebitos,reforma:tabReforma,cen:tabCenarios,bairro:tabBairro,calc:tabCalc,avista:tabAvista,price:()=>tabFin('PRICE'),sac:()=>tabFin('SAC'),result:tabResult,ck:tabCk,crono:tabCrono})[CURTAB]();
   modal.innerHTML=b;
+}
+/* ② Análise: as 9 sub-abas viram seções de uma rolagem só.
+   As pesadas (projeções) começam fechadas — mesma informação, sob demanda. */
+const SEC_ANALISE=[
+  {id:'mercado', tit:'Mercado',   aberta:true,  partes:[['Comparáveis',()=>tabComp()],['Bairro & liquidez',()=>tabBairro()]]},
+  {id:'custos',  tit:'Custos',    aberta:true,  partes:[['Débitos',()=>tabDebitos()],['Reforma',()=>tabReforma()]]},
+  {id:'cenarios',tit:'Cenários',  aberta:true,  partes:[['Cenários',()=>tabCenarios()]]},
+  {id:'proj',    tit:'Projeções', aberta:false, partes:[['À Vista',()=>tabAvista()],['PRICE',()=>tabFin('PRICE')],['SAC',()=>tabFin('SAC')],['Resultados',()=>tabResult()]]}
+];
+function secAberta(id){const o=window._secOpen;return o&&Object.prototype.hasOwnProperty.call(o,id)?o[id]
+  :(SEC_ANALISE.find(g=>g.id===id)||{}).aberta;}
+function toggleSecAnalise(id){window._secOpen=Object.assign({},window._secOpen);
+  window._secOpen[id]=!secAberta(id);drawModal();}
+function irPara(elId){const e=document.getElementById(elId);if(!e)return;
+  const g=elId.replace(/^sa-/,'');if(!secAberta(g)){toggleSecAnalise(g);setTimeout(()=>irPara(elId),0);return;}
+  e.scrollIntoView({block:'start',behavior:'smooth'});}
+function analiseEmSecoes(){
+  return SEC_ANALISE.map(g=>{
+    const ab=secAberta(g.id);
+    return `<div id="sa-${g.id}" style="margin-top:14px;border:1px solid var(--line);border-radius:11px;overflow:hidden">
+      <div onclick="toggleSecAnalise('${g.id}')" style="cursor:pointer;padding:11px 15px;background:var(--panel);display:flex;align-items:center;gap:9px">
+        <span class="muted" style="font-size:11px;width:10px">${ab?'▾':'▸'}</span>
+        <b style="font-size:13.5px;letter-spacing:.02em">${g.tit}</b>
+        <span class="muted" style="font-size:11px">${g.partes.map(x=>x[0]).join(' · ')}</span>
+      </div>
+      ${ab?`<div style="padding:12px 14px 16px">${g.partes.map(x=>x[1]()).join('')}</div>`:''}
+    </div>`;}).join('');
 }
 function tabResumo(){const r=window._cur,p=EP();const av=avistaSeries(r,p).slice(-1)[0],pr=finSaleSeries(r,p,'PRICE').out.slice(-1)[0],sc=finSaleSeries(r,p,'SAC').out.slice(-1)[0];const c=calc(r,p);const fr=farol(r,p);
   return `${lanceCard(r,p)}${origemCard(r)}<div class="grid3">
