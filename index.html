@@ -228,6 +228,9 @@ function bairroScore(r){
   return {frac:pts/max,preenchido:true};
 }
 let _map=null,_mapLayer=null,_geoBusy=false;
+function fotoUrl(r){return r&&r.id?('https://venda-imoveis.caixa.gov.br/fotos/F'+r.id+'21.jpg'):'';}
+function fotoTag(r,alt,extra){const u=fotoUrl(r);if(!u)return '';
+  return `<img src="${u}" alt="foto do imóvel" loading="lazy" onerror="this.closest('.fotobox')?this.closest('.fotobox').remove():this.remove()" style="${alt||''}" ${extra||''}>`;}
 function gmapsUrl(r){return 'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent([r.endereco,r.bairro,r.cidade,r.uf,'Brasil'].filter(Boolean).join(', '));}
 function geoQueries(r){const q=[];const c=[r.cidade,r.uf,'Brasil'].filter(Boolean).join(', ');
   if(r.endereco)q.push({q:[r.endereco.replace(/\s*,?\s*(APTO?|AP|BL|BLOCO|QD|QUADRA|LT|LOTE)\b.*/i,''),r.bairro,c].filter(Boolean).join(', '),aprox:false});
@@ -688,6 +691,7 @@ function renderMapa(){
       :`<div style="background:${cor};color:${fr.verd==='AMARELO'?'#222':'#fff'};padding:2px 7px;border-radius:11px;font:700 11px -apple-system,sans-serif;white-space:nowrap;border:2px solid ${fav?'#f4d35e':'rgba(0,0,0,.35)'};box-shadow:0 1px 4px rgba(0,0,0,.5)">${fav?'⭐':''}${fmt(PR/1000)}k${g.aprox?' ~':''}</div>`;
     const mk=L.marker([g.lat,g.lon],{icon:L.divIcon({html,className:'',iconSize:null})}).addTo(_mapLayer);
     mk.bindPopup(`<div style="font:13px -apple-system,sans-serif;min-width:210px">
+      <span class="fotobox">${fotoTag(r,'width:100%;max-height:110px;object-fit:cover;border-radius:6px;margin-bottom:5px;display:block')}</span>
       <b>${esc(r.tipo||'')} · ${esc(r.bairro||'')}</b><br>${esc(r.cidade||'')} — ${esc(r.endereco||'')}<br>
       <b>R$ ${fmt(PR)}</b> · aval. R$ ${fmt(r.aval)} · ${(100*(1-PR/r.aval)).toFixed(1)}%<br>
       Farol: <b>${fr.verd}</b> · Lance máx.: R$ ${fmt(lanceMax(r,p).lance)}${g.aprox?'<br><i>📍 aproximado (bairro)</i>':''}<br>
@@ -1085,6 +1089,10 @@ function drawModal(){
   <button class="close" style="margin-right:8px;${FIN[r.id]?'background:rgba(241,196,15,.18);color:#f4d35e':''}" onclick="toggleFinDetail('${r.id}')" title="${FIN[r.id]?'remover dos favoritos':'adicionar aos favoritos'}">${FIN[r.id]?'⭐ Favorito':'☆ Favoritar'}</button>
   <h2>${r.tipo} · ${r.bairro} <span class="badge">${r.cidade}</span> <span class="pill ${fr.verd==='VERDE'?'g':fr.verd==='AMARELO'?'y':'r'}" id="farolPill">${fr.verd} · ${fr.score}</span> ${rankBadge(r)}</h2>
   <div class="muted">${r.endereco} · <a href="${r.link}" target="_blank">ver na Caixa ↗</a> · matrícula: <a href="https://venda-imoveis.caixa.gov.br/editais/matricula/${r.uf}/${r.id}.pdf" target="_blank">PDF ↗</a> · <a href="${gmapsUrl(r)}" target="_blank" rel="noopener">🗺 Google Maps ↗</a>${(GEO[r.id]&&GEO[r.id].lat!=null)?` · <span class="muted">📍 no mapa${GEO[r.id].aprox?' (aprox.)':''}</span>`:` · <a href="#" onclick="setGeoManual('${r.id}',prompt('Cole a coordenada (lat, long) — copie do Google Maps clicando com o botão direito no ponto:',''));return false;">📍 definir coordenada</a>`}</div>
+  <div class="fotobox" style="float:right;margin:0 0 8px 12px">
+    <a href="${fotoUrl(r)}" target="_blank" rel="noopener" title="abrir a foto em tamanho real">
+      ${fotoTag(r,'width:180px;max-height:150px;object-fit:cover;border-radius:9px;border:1px solid var(--line);display:block')}
+    </a></div>
   ${r._absent?`<div class="pill r" style="display:inline-block;margin:6px 0">⚠ Fora da lista atual — dados de ${(FAVMETA[r.id]&&FAVMETA[r.id].lastDg)||'?'}. Pode ter sido vendido/leiloado.</div>`:''}
   ${isOnlineSale(r.modal)?`<div class="muted" style="margin:6px 0">⏳ Prazo do leilão: <input type="datetime-local" value="${prazoInput((FAVMETA[r.id]||{}).prazo)}" onchange="setPrazo('${r.id}',this.value)">${prazoStatus((FAVMETA[r.id]||{}).prazo)}${FIN[r.id]?'':' <span class="muted">— favorite ★ para acompanhar o prazo</span>'}</div>`:''}
   ${isShared(r.id)?`<div class="pill" style="display:inline-block;margin:6px 0;background:rgba(79,124,255,.16);color:#9bb4ff">🤝 Dossiê colaborativo — publicado por ${esc((SHARED[r.id].owner_email||'').split('@')[0])} · última edição por ${esc((SHARED[r.id].updated_by_email||'').split('@')[0])} há ${ago(SHARED[r.id].updated_at)}. Suas alterações aqui são vistas por todo o grupo.</div>`:''}
