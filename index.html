@@ -1339,6 +1339,9 @@ function tabCk(){const r=window._cur,p=EP();const ck=checklist(r,p);
   const fbtn=(v,lbl,n,cor)=>`<button class="ghost" style="padding:3px 9px;font-size:11.5px;${CKF===v?'background:var(--accent);color:#fff':(cor?'color:'+cor:'')}" onclick="setCkF('${v}')">${lbl}${n!=null?' ('+n+')':''}</button>`;
   b+=`<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px;align-items:center">
     <span class="muted" style="font-size:11px">filtrar:</span>
+    <button class="ghost" style="padding:3px 9px;font-size:11.5px" onclick="expandCk(true)" title="abrir os campos de todos os itens">abrir tudo</button>
+    <button class="ghost" style="padding:3px 9px;font-size:11.5px" onclick="expandCk(false)" title="fechar todos">fechar tudo</button>
+    <span class="muted" style="font-size:11px">·</span>
     ${fbtn('todos','Todos',ck.length)}${fbtn('OK','✅ OK',cont.OK,'#5be59a')}${fbtn('Pendente','⏳ Pendente',cont.Pendente,'#f4d35e')}${fbtn('Problema','⛔ Problema',cont.Problema,'#ff8b7d')}${fbtn('N/A','N/A',cont['N/A'])}${fbtn('bloqueia','🔒 Bloqueiam',bloqN,'#ff8b7d')}${fbtn('ia','🤖 Da IA',ck.filter(c=>c.ai).length,'#9bb4ff')}
   </div>`;
   b+='<div class="muted" style="margin-bottom:6px">🔒 = item que <b>bloqueia o lance</b> enquanto não estiver OK ou N/A.</div>';
@@ -1346,14 +1349,42 @@ function tabCk(){const r=window._cur,p=EP();const ck=checklist(r,p);
   if(!visiveis.length)b+='<div class="muted" style="padding:14px 0">Nenhum item nesse filtro.</div>';
   let cat='';
   visiveis.forEach((c)=>{const i=c.i;if(c.cat!==cat){cat=c.cat;b+=`<h4 style="margin-top:12px">${cat}</h4>`;}
-    b+=`<div class="ckrow"><div class="ckhead"><span class="crit c-${c.crit}">${c.crit}</span>${c.bloqueia?' <span class="crit c-Crítico" title="Bloqueia o lance se não estiver OK/N/A">🔒 bloqueia</span>':''}${c.ai?' <span class="crit" style="background:rgba(127,162,255,.18);color:#9bb4ff" title="Preenchido pela IA — revise">🤖 IA</span>':''} <b>${esc(c.item)}</b><div class="muted">${esc(c.obs)}</div></div>
-      <div class="ckfields">
+    const aberto=(window._ckOpen||{})[c.chave], stCor=c.status==='OK'?'var(--green)':c.status==='Problema'?'var(--red)':c.status==='N/A'?'var(--mut)':'var(--amber)';
+    b+=`<div class="ckrow">
+      <div class="ckhead" onclick="toggleCkItem('${c.chave}')" style="cursor:pointer;display:flex;align-items:center;gap:9px">
+        <span title="${esc(c.status)}" style="flex:0 0 9px;width:9px;height:9px;border-radius:50%;background:${stCor}"></span>
+        <span style="flex:1;min-width:0">
+          <b>${esc(c.item)}</b>
+          ${c.obs?`<span class="muted" style="display:block;font-size:11px">${esc(c.obs)}</span>`:''}
+        </span>
+        <span style="flex:0 0 auto;display:flex;align-items:center;gap:6px">
+          ${c.bloqueia&&c.status!=='OK'&&c.status!=='N/A'?'<span class="crit c-Crítico" title="Bloqueia o lance">🔒 bloqueia</span>':''}
+          ${c.ai?'<span class="crit" style="background:rgba(127,162,255,.18);color:#9bb4ff" title="Preenchido pela IA — revise">🤖</span>':''}
+          <span class="muted" style="font-size:11px">${esc(c.status)}</span>
+          <span class="muted" style="font-size:10px;width:10px;display:inline-block">${aberto?'▾':'▸'}</span>
+        </span>
+      </div>
+      <div class="ckfields" style="${aberto?'':'display:none'}">
         <select onchange="setCkField('${r.id}',${i},'status',this.value)">${['OK','Pendente','Problema','N/A'].map(s=>`<option ${s===c.status?'selected':''}>${s}</option>`).join('')}</select>
         <input placeholder="Evidência / fonte" value="${esc(c.evid)}" onchange="setCkField('${r.id}',${i},'evid',this.value)">
         <input placeholder="Responsável" value="${esc(c.resp)}" onchange="setCkField('${r.id}',${i},'resp',this.value)">
         <div class="ckdates"><span class="dl">Início</span><input type="date" value="${esc(c.dataIni)}" onchange="setCkField('${r.id}',${i},'dataIni',this.value)"><span class="dl">Fim</span><input type="date" value="${esc(c.dataFim)}" onchange="setCkField('${r.id}',${i},'dataFim',this.value)"></div>
       </div></div>`;});
   return b+'</div>';}
+/* Diligência: os 5 campos de cada item só aparecem no item aberto.
+   Estado por CHAVE (não por índice), para sobreviver a filtros e reordenações. */
+function toggleCkItem(chave){
+  window._ckOpen=window._ckOpen||{};
+  const era=window._ckOpen[chave];
+  window._ckOpen={};                       // um item aberto por vez
+  if(!era)window._ckOpen[chave]=true;
+  drawModal();
+}
+function expandCk(todos){
+  window._ckOpen={};
+  if(todos)checklist(window._cur,EP()).forEach(c=>{window._ckOpen[c.chave]=true;});
+  drawModal();
+}
 function resetCk(id){if(!confirm('Restaurar o checklist deste imóvel para o padrão do carregamento? As marcações e observações que você alterou neste imóvel serão perdidas.'))return;delete CKST[id];saveLS('ck_state',CKST);render();drawModal();}
 function refreshCkLive(){const r=window._cur;if(!r)return;const p=EP();const fr=farol(r,p);const pill=document.getElementById('farolPill');if(pill){pill.className='pill '+(fr.verd==='VERDE'?'g':fr.verd==='AMARELO'?'y':'r');pill.textContent=fr.verd+' · '+fr.score;}const sum=document.getElementById('ckSummary');if(sum)sum.textContent=ckSummaryText(r,p);const dw=document.getElementById('decWrap');if(dw)dw.innerHTML=decBanner(r,p);}
 function kv(k,v){return `<div class="kv"><span>${k}</span><b>${v}</b></div>`;}
