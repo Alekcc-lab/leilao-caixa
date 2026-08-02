@@ -228,7 +228,35 @@ function bairroScore(r){
   return {frac:pts/max,preenchido:true};
 }
 let _map=null,_mapLayer=null,_geoBusy=false;
-function fotoUrl(r){return r&&r.id?('https://venda-imoveis.caixa.gov.br/fotos/F'+r.id+'21.jpg'):'';}
+function fotoUrlId(id){return id?('https://venda-imoveis.caixa.gov.br/fotos/F'+id+'21.jpg'):'';}
+function fotoUrl(r){return fotoUrlId(r&&r.id);}
+/* --- prévia da foto ao passar o mouse na lista (carrega só o imóvel apontado) --- */
+const FOTO404={};let _fpEl=null,_fpId=null,_fpX=0,_fpY=0;
+function fpInit(){if(_fpEl)return;
+  _fpEl=document.createElement('div');
+  _fpEl.style.cssText='position:fixed;z-index:2000;display:none;pointer-events:none;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--panel);box-shadow:0 12px 34px rgba(0,0,0,.55)';
+  _fpEl.innerHTML='<img alt="" style="display:block;width:260px;max-height:220px;object-fit:cover">';
+  document.body.appendChild(_fpEl);}
+function fpMove(){if(!_fpEl||_fpEl.style.display==='none')return;
+  const w=_fpEl.offsetWidth||260,h=_fpEl.offsetHeight||200;
+  let x=_fpX+20,y=_fpY+16;
+  if(x+w>innerWidth-10)x=_fpX-w-20;
+  if(y+h>innerHeight-10)y=Math.max(10,innerHeight-h-10);
+  _fpEl.style.left=x+'px';_fpEl.style.top=y+'px';}
+function fpHide(){_fpId=null;if(_fpEl)_fpEl.style.display='none';}
+function fpShow(id){if(!id||FOTO404[id]||_fpId===id)return;
+  fpInit();_fpId=id;_fpEl.style.display='none';
+  const img=_fpEl.firstChild;
+  img.onload=()=>{if(_fpId===id){_fpEl.style.display='block';fpMove();}};
+  img.onerror=()=>{FOTO404[id]=1;if(_fpId===id)fpHide();};
+  img.src=fotoUrlId(id);}
+function fpLinha(t){const tr=t&&t.closest&&t.closest('tr[onclick^="openDetail"]');if(!tr)return null;
+  const m=(tr.getAttribute('onclick')||'').match(/openDetail\('([^']+)'\)/);return m?m[1]:null;}
+if(window.matchMedia&&window.matchMedia('(hover:hover)').matches){
+  document.addEventListener('mousemove',e=>{_fpX=e.clientX;_fpY=e.clientY;fpMove();},{passive:true});
+  document.addEventListener('mouseover',e=>{const id=fpLinha(e.target);if(id)fpShow(id);else fpHide();},{passive:true});
+  document.addEventListener('click',fpHide,true);
+  addEventListener('scroll',fpHide,true);}
 function fotoTag(r,alt,extra){const u=fotoUrl(r);if(!u)return '';
   return `<img src="${u}" alt="foto do imóvel" loading="lazy" onerror="this.closest('.fotobox')?this.closest('.fotobox').remove():this.remove()" style="${alt||''}" ${extra||''}>`;}
 function gmapsUrl(r){return 'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent([r.endereco,r.bairro,r.cidade,r.uf,'Brasil'].filter(Boolean).join(', '));}
