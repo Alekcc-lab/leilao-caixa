@@ -1574,17 +1574,23 @@ function origemCard(r){const tipo=origemOf(r),nota=(ORIGEM[r.id]&&ORIGEM[r.id].n
 function lanceCard(r,p){
   const l=lanceOf(r.id), lm=Math.round(lanceMax(r,p).lance), PR=(p.preco!=null?p.preco:r.preco);
   const teto=(l.teto===''||l.teto==null)?null:+l.teto, dado=(l.dado===''||l.dado==null)?null:+l.dado;
-  const acima=teto!=null&&teto>lm, res=l.resultado||'Não disputado';
-  const sug=Math.max(0,Math.round(lm*0.9));
+  const res=l.resultado||'Não disputado';
+  const inviavel=lm<PR;                            // o máximo que preserva a TMA nem alcança o mínimo do edital
+  const acima=teto!=null&&teto>lm, abaixoMin=teto!=null&&teto<PR;
+  const sug=Math.max(PR,Math.round(lm*0.9));       // nunca sugerir um lance que o edital não aceita
+  const sugNoMin=sug<=PR;
   let aviso='';
-  if(acima)aviso=`<div class="pill r" style="display:inline-block;margin-top:8px">⛔ Seu teto está R$ ${fmt(teto-lm)} ACIMA do máximo calculado — abaixo disso você queima sua margem.</div>`;
-  else if(teto!=null)aviso=`<div class="muted" style="margin-top:8px">✅ Teto dentro do limite — folga de R$ ${fmt(lm-teto)} até o máximo calculado.</div>`;
-  else aviso=`<div class="muted" style="margin-top:8px">Defina seu teto antes da disputa. Sugestão conservadora (90% do máximo): <a href="#" onclick="setLance('${r.id}','teto',${sug});return false">R$ ${fmt(sug)}</a></div>`;
+  if(inviavel)aviso=`<div class="pill r" style="display:inline-block;margin-top:8px">⛔ Não existe lance possível: o máximo que preserva sua TMA (R$ ${fmt(lm)}) é R$ ${fmt(PR-lm)} MENOR que o mínimo do edital (R$ ${fmt(PR)}).</div>
+   <div class="muted" style="margin-top:4px">Só vira negócio se o valor de mercado subir, se reforma/débitos caírem, ou se você aceitar uma TMA menor. Não adianta definir teto.</div>`;
+  else if(abaixoMin)aviso=`<div class="pill r" style="display:inline-block;margin-top:8px">⛔ Seu teto (R$ ${fmt(teto)}) está abaixo do mínimo do edital (R$ ${fmt(PR)}) — com ele você não consegue nem dar lance.</div>`;
+  else if(acima)aviso=`<div class="pill r" style="display:inline-block;margin-top:8px">⛔ Seu teto está R$ ${fmt(teto-lm)} ACIMA do máximo calculado — acima disso você queima sua margem.</div>`;
+  else if(teto!=null)aviso=`<div class="muted" style="margin-top:8px">✅ Teto viável: R$ ${fmt(teto-PR)} acima do mínimo do edital e com folga de R$ ${fmt(lm-teto)} até o máximo calculado.</div>`;
+  else aviso=`<div class="muted" style="margin-top:8px">Defina seu teto antes da disputa. Sugestão ${sugNoMin?'possível':'conservadora (90% do máximo)'}: <a href="#" onclick="setLance('${r.id}','teto',${sug});return false">R$ ${fmt(sug)}</a>${sugNoMin?' — é o próprio mínimo do edital; a margem aqui é apertada (só R$ '+fmt(lm-PR)+' de espaço até o máximo).':''}</div>`;
   const cor=res==='Arrematado'?'g':res==='Perdi a disputa'||res==='Desisti'?'r':res==='Vou disputar'?'y':'';
   return `<div class="card" style="margin-bottom:14px"><h4>🎯 Meu lance</h4>
    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;align-items:end">
-     <div><label style="margin:0 0 2px">Máximo calculado</label><div style="font-size:17px;font-weight:700;padding:6px 0">R$ ${fmt(lm)}</div></div>
-     <div><label style="margin:0 0 2px">Meu teto (comprometido)</label><input type="number" value="${teto!=null?teto:''}" placeholder="quanto vou levar" onchange="setLance('${r.id}','teto',this.value)" style="${acima?'border-color:var(--red)':''}"></div>
+     <div><label style="margin:0 0 2px">Máximo calculado</label><div style="font-size:17px;font-weight:700;padding:6px 0${inviavel?';color:var(--red)':''}">R$ ${fmt(lm)}${inviavel?' <span style="font-size:11px;font-weight:600">&lt; mínimo</span>':''}</div></div>
+     <div><label style="margin:0 0 2px">Meu teto (comprometido)</label><input type="number" value="${teto!=null?teto:''}" placeholder="${inviavel?'inviável neste preço':'quanto vou levar'}" onchange="setLance('${r.id}','teto',this.value)" style="${acima||abaixoMin?'border-color:var(--red)':''}"></div>
      <div><label style="margin:0 0 2px">Lance que dei</label><input type="number" value="${dado!=null?dado:''}" placeholder="—" onchange="setLance('${r.id}','dado',this.value)"></div>
      <div><label style="margin:0 0 2px">Data do lance</label><input type="date" value="${esc(l.data||'')}" onchange="setLance('${r.id}','data',this.value)"></div>
      <div><label style="margin:0 0 2px">Resultado</label><select onchange="setLance('${r.id}','resultado',this.value)">${RESULTADOS.map(o=>`<option ${o===res?'selected':''}>${o}</option>`).join('')}</select></div>
